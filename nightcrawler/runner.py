@@ -1,69 +1,113 @@
-# nightcrawler/runner.py
+# nightcrawler/runner.py (Final Version using Absolute Path Workaround)
 import sys
 import os
-from mitmproxy.tools.main import mitmdump  # Import mitmdump's main entry function
+import pathlib
+import traceback  # For printing full tracebacks on unexpected errors
 
-# Import the version defined in the package's __init__.py
 try:
-    # Assuming you have __version__ = "..." in nightcrawler/__init__.py
+    # --- Calculate necessary paths ---
+    runner_script_path = pathlib.Path(__file__).resolve()
+    # Assuming runner.py is directly inside the 'nightcrawler' package directory
+    package_dir = runner_script_path.parent
+    project_root = package_dir.parent  # Directory containing the 'nightcrawler' dir
+    # Construct the absolute path to the main addon file
+    addon_file_path = package_dir / "addon.py"
+
+    # --- Basic Sanity Check ---
+    # Verify that the calculated addon file actually exists
+    if not addon_file_path.is_file():
+        print(
+            f"CRITICAL ERROR: Addon script not found at expected path: {addon_file_path}",
+            file=sys.stderr,
+        )
+        print(
+            f"(Based on runner script location: {runner_script_path})", file=sys.stderr
+        )
+        sys.exit(1)
+
+    # --- Add project root to sys.path (might still be needed for imports *within* the addon) ---
+    # Although mitmproxy loads the file directly, the addon script itself might
+    # perform imports relative to the package structure later.
+    project_root_str = str(project_root)
+    if project_root_str not in sys.path:
+        # print(f"--- DEBUG: Prepending project root to sys.path: {project_root_str} ---", file=sys.stderr) # Optional debug
+        sys.path.insert(0, project_root_str)
+
+    # --- Import Dependencies AFTER path setup (if needed) ---
+    # Imports specifically needed for the runner logic itself
+    from mitmproxy.tools.main import mitmdump
+
+    # Import version info from the package
     from nightcrawler import __version__ as nightcrawler_version
-except ImportError:
-    # Fallback if __init__.py or __version__ is missing
-    nightcrawler_version = "unknown"
+
+except ImportError as e:
+    print(
+        f"CRITICAL ERROR: Failed to import dependencies (mitmproxy or nightcrawler package).",
+        file=sys.stderr,
+    )
+    print(
+        f"Ensure required packages are installed in the virtual environment ('{sys.prefix}').",
+        file=sys.stderr,
+    )
+    print(f"Import error details: {e}", file=sys.stderr)
+    sys.exit(1)
+except Exception as e:
+    # Catch other potential errors during initialization
+    print(f"CRITICAL ERROR during runner initialization: {e}", file=sys.stderr)
+    traceback.print_exc(file=sys.stderr)
+    sys.exit(1)
 
 
 def main():
     """
     Entry point for the 'nightcrawler' command line tool.
-    Checks for the '--version' flag, otherwise starts mitmdump
-    instructing it to load the addon from within this package.
+    Handles '--version' and then starts mitmdump, loading the addon
+    using its absolute file path as a workaround for module resolution issues.
     """
-    # --- Intercept the --version argument ---
+    # --- Handle --version Flag ---
     if "--version" in sys.argv:
         print(f"Nightcrawler version: {nightcrawler_version}")
-        # Optionally, also show the mitmproxy version for context.
         try:
-            # Try to import and print the mitmproxy version
+            # Try to get mitmproxy version directly
             from mitmproxy import version as mitmproxy_version_module
 
             print(f"Mitmproxy version: {mitmproxy_version_module.VERSION}")
         except ImportError:
-            # Fallback if mitmproxy version cannot be imported
             print("Mitmproxy version: (could not determine)")
-        # Exit immediately after printing the version(s)
-        sys.exit(0)
+        sys.exit(0)  # Exit after printing version
 
-    # --- If not --version, proceed to run mitmdump ---
-    # Python path to the addon module within the package
-    addon_path = "nightcrawler.addon"
+    # --- Prepare and Run mitmdump ---
+    # Use the calculated absolute file path as the argument for '-s'
+    addon_arg = str(addon_file_path)
 
-    # Base arguments for mitmdump: load our addon script
-    mitm_args = ["-s", addon_path]
+    # Basic arguments for mitmdump: load our addon script via its file path
+    mitm_args = ["-s", addon_arg]
 
     # Append all other arguments passed by the user to the 'nightcrawler' command
-    # Skips the first argument (the command name itself)
+    # This includes '--set', '-p', '-v', '--ssl-insecure', etc.
     mitm_args.extend(sys.argv[1:])
 
-    # Print an informational startup message to stderr
-    print(f"--- Starting Nightcrawler (using addon: {addon_path}) ---", file=sys.stderr)
-    # Useful for debugging: shows the effective mitmdump command being run
-    # print(f"--- Running: mitmdump {' '.join(mitm_args)} ---", file=sys.stderr) # Uncomment if needed
-
+    print(
+        f"--- Starting Nightcrawler v{nightcrawler_version} (using addon file: {addon_arg}) ---",
+        file=sys.stderr,
+    )
     try:
-        # Execute mitmdump with the combined arguments
-        # This call replaces the current process with mitmdump
+        # Execute mitmdump with the addon file path and user arguments
         mitmdump(mitm_args)
+    except SystemExit:
+        # Let mitmproxy handle its own exit via SystemExit
+        raise
     except Exception as e:
-        # Catch potential errors during mitmdump execution
+        # Catch unexpected errors during mitmproxy execution
         print(f"\n--- ERROR running mitmdump ---", file=sys.stderr)
         print(f"{e}", file=sys.stderr)
-        print(f"--- Args passed: {' '.join(mitm_args)} ---", file=sys.stderr)
-        sys.exit(1)  # Exit with a non-zero status code on error
+        print(
+            f"--- Args passed to mitmdump: {' '.join(mitm_args)} ---", file=sys.stderr
+        )
+        traceback.print_exc(file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    # Allows running this script directly (python nightcrawler/runner.py ...)
-    # for testing, though the main entry point is the 'main' function
-    # via the console script defined in pyproject.toml.
+    # Entry point when script is run directly
     main()
-

@@ -20,6 +20,41 @@ and this project adheres to
 
 - _Future fixes go here_
 
+## 0.4.0 - 2025-04-03
+
+### Added
+
+- Configuration via mitmproxy command-line options:
+  - Added `--nc-max-concurrency` option.
+  - Added `--nc-user-agent` option.
+  - Added `--nc-sqli-payload-file` option to load SQLi payloads from a file.
+  - Added `--nc-xss-reflected-payload-file` option to load Reflected XSS
+    payloads from a file.
+  - Added `--nc-xss-stored-prefix` option.
+  - Added `--nc-xss-stored-format` option.
+- Helper function in `addon.py` (`_load_payloads_from_file`) to load payloads
+  from files specified by options, with fallback to internal defaults.
+
+### Changed
+
+- Removed user configuration constants (`MAX_CONCURRENT_SCANS`, `USER_AGENT`,
+  payload lists, stored XSS format/prefix) from `nightcrawler/config.py`.
+- Modified `addon.py` (`MainAddon`) to define, process (`configure` hook), and
+  store configuration values from `ctx.options`.
+- Updated `addon.py` (`running` hook) to initialize `Semaphore` and
+  `httpx.AsyncClient` using values derived from options.
+- Modified scanner functions (`scan_sqli_basic`, `scan_xss_reflected_basic`,
+  `scan_xss_stored_inject`) to accept configuration (payloads, prefix, format)
+  as arguments instead of importing them.
+- Updated calls in `_scan_worker` (`addon.py`) to pass the configured values to
+  scanner functions.
+- Updated `README.txt` to document the new command-line configuration options.
+
+### Fixed
+
+- Ensured HTTP client and Semaphore are initialized/re-initialized correctly in
+  the `running` hook after options are processed by `configure`.
+
 ## [0.3.0] - 2025-03-27
 
 ### Added

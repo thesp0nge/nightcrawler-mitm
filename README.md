@@ -31,7 +31,8 @@ Once installed, a new command `nightcrawler` becomes available. This command
 wraps `mitmdump`, automatically loading the nightcrawler addon. You MUST specify
 the target scope using the `--nc-scope` option.
 
-You can pass any other valid `mitmdump` arguments to the `nightcrawler` command.
+You can pass any other valid `mitmproxy` arguments (like `--ssl-insecure`, `-p`,
+`-v`) to the `nightcrawler` command.
 
 1. Configure your Browser/Client: Set your browser (or system) to use 127.0.0.1
    on port 8080 (or the port you specify using -p) as its HTTP and HTTPS proxy.
@@ -48,17 +49,15 @@ You can pass any other valid `mitmdump` arguments to the `nightcrawler` command.
    - Multiple domains (comma-separated, no spaces): nightcrawler --nc-scope
      example.com,sub.example.com,another.net
 
-   - Common Options: (Specify port and scope) nightcrawler -p 8081 --nc-scope
-     example.com
+   - Common Options (Combine as needed): nightcrawler -p 8081 --nc-scope
+     example.com nightcrawler --ssl-insecure --nc-scope internal-site.local
+     nightcrawler -v --nc-scope example.com # Use -v or -vv for debug logs
+     nightcrawler --nc-max-concurrency 10 --nc-scope secure.com nightcrawler
+     --nc-sqli-payload-file sqli.txt --nc-scope test.org
 
-     (Disable upstream certificate verification + scope - USE WITH CAUTION!)
-     nightcrawler --ssl-insecure --nc-scope internal-site.local
+   - Show Nightcrawler & Mitmproxy version: nightcrawler --version
 
-     (Increase verbosity + scope - Use -v for DEBUG logs) nightcrawler -v
-     --nc-scope example.com
-
-     (Combine options) nightcrawler -p 8080 --ssl-insecure -v --nc-scope
-     dev.example.com
+   - Show all Nightcrawler and Mitmproxy options: nightcrawler --help
 
    NOTE: If --nc-scope is not provided, Nightcrawler will run but will not
    process any requests.
@@ -67,18 +66,31 @@ You can pass any other valid `mitmdump` arguments to the `nightcrawler` command.
    from passive analysis, crawling, and active scans will appear in the terminal
    where `nightcrawler` is running. Look for [Passive Scan], [CRAWLER
    DISCOVERY],
-   [SQLi FOUND?], [XSS FOUND?] messages.
+   [SQLi FOUND?], [XSS FOUND?], [STORED XSS? FOUND] messages.
 
 ## CONFIGURATION
 
-- Target Scope (Required): Set via the `--nc-scope` command-line argument
-  (comma-separated domains).
+Nightcrawler uses mitmproxy's option system. Pass arguments when running the
+`nightcrawler` command:
 
-- Other Settings: Max concurrency (MAX_CONCURRENT_SCANS) and User-Agent
-  (USER_AGENT) are currently defined in the `nightcrawler/config.py` file within
-  the installed package. Modifying these requires editing the installed file
-  (future versions may use command-line options or a separate config file). You
-  can find the installation location using `pip show nightcrawler-mitm`.
+- `--nc-scope DOMAIN[,DOMAIN,...]` (Required): Target domain(s)
+  (comma-separated).
+- `--nc-max-concurrency INT` (Default: 5): Max concurrent background tasks.
+- `--nc-user-agent STRING` (Default: Nightcrawler-MITM/x.y.z): User-Agent for
+  worker requests.
+- `--nc-payload-max-age INT` (Default: 3600): Max age (seconds) for tracking
+  Stored XSS probes.
+- `--nc-sqli-payload-file FILEPATH` (Default: Uses built-in list): File with
+  SQLi payloads (one per line).
+- `--nc-xss-reflected-payload-file FILEPATH` (Default: Uses built-in list): File
+  with Reflected XSS payloads (one per line).
+- `--nc-xss-stored-prefix STRING` (Default: "ncXSS"): Prefix for unique Stored
+  XSS probe IDs.
+- `--nc-xss-stored-format STRING` (Default: ""): Format string for Stored XSS
+  probe payload (must contain `{probe_id}`).
+
+You can also use standard mitmproxy options like `-p PORT`,
+`--listen-host HOST`, `--ssl-insecure`, `-v`, `-vv`, etc.
 
 ## LIMITATIONS
 
