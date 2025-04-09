@@ -20,6 +20,78 @@ and this project adheres to
 
 - _Future fixes go here_
 
+## [0.5.0] - 2025-04-09
+
+### Added
+
+- **Structured Output:** Added `--set nc_output_file=path/to/file.jsonl` option
+  to save findings in JSON Lines format. Implemented `_log_finding` helper in
+  `MainAddon` for centralized logging to console and file.
+- **Enhanced Passive Scanning:**
+  - Added checks for more security headers (`Permissions-Policy`, COOP, COEP,
+    CORP).
+  - Added basic check for weak HSTS `max-age` and incorrect
+    `X-Content-Type-Options`.
+  - Added basic check for weak CSP directives (`unsafe-inline`, `unsafe-eval`,
+    wildcard source).
+  - Added basic JWT detection and decoding (no signature check) in request
+    headers (`Authorization: Bearer`) and JSON responses
+    (`passive_scans/jwt.py`).
+  - Added basic info disclosure pattern checks for Keywords, AWS Key IDs, and
+    Private Key headers (`passive_scans/content.py`). _(Note: User might need to
+    manually integrate `content.py` code due to previous generation issues)._
+- **WebSocket Handling:**
+  - Added detection of WebSocket connection establishment (`websocket_start`
+    hook), logging only once per host.
+  - Added option (`--set nc_inspect_websocket=false`) to disable/enable detailed
+    WebSocket message logging (`websocket_message` hook).
+
+### Changed
+
+- **Major Refactor (Passive Scans):** Moved passive scan logic into a
+  `nightcrawler/passive_scans/` sub-package (`headers.py`, `cookies.py`,
+  `jwt.py`, `content.py`). `passive_scanner.py` now acts as an orchestrator
+  importing from the sub-package.
+- **Major Refactor (WebSockets):** Moved WebSocket handling logic into
+  `nightcrawler/websocket_handler.py`. `addon.py` now calls handlers via wrapper
+  methods.
+- Updated signatures of scanner and passive check functions to accept
+  `addon_instance` for calling the centralized `_log_finding` method.
+- Refactored finding logging across applicable modules to use
+  `MainAddon._log_finding`.
+
+### Fixed
+
+- Fixed various `TypeError` and `NameError` exceptions during addon loading and
+  execution:
+  - Corrected `loader.add_option` calls in `addon.py` to use `typespec=` instead
+    of `type=` (for mitmproxy v11 compatibility).
+  - Added missing imports (`traceback` in `addon.py`, `Optional` in
+    `passive_scanner.py`).
+  - Corrected calls to scanner functions (`scan_xss_reflected_basic`,
+    `scan_sqli_basic`) in `addon.py` to pass `addon_instance` (`self`).
+  - Corrected `NameError` for undefined `payload_info` variable within an
+    exception handler in `xss_scanner.py`.
+- Fixed `AttributeError: module 'mitmproxy.http' has no attribute 'Cookie'` by
+  correcting the type hint in `passive_scans/cookies.py` to use `MultiDictView`.
+- Fixed `AttributeError: module 'mitmproxy.ctx' has no attribute 'log'` by
+  moving initial logging from `MainAddon.__init__` to the `running` hook.
+- Fixed `AttributeError: 'MainAddon' object has no attribute '_log_finding'` by
+  adding the `_log_finding` method definition to `MainAddon`.
+- Fixed `AttributeError: cannot access attribute _queue for class Queue` by
+  replacing direct queue inspection with a separate tracking set
+  (`revisit_in_progress`).
+- Fixed `Too much data for declared Content-Length` error in active scanners by
+  filtering `Content-Length`, `Host`, and `Transfer-Encoding` headers before
+  sending modified requests via `httpx`.
+- Resolved `No such script: nightcrawler.addon` errors by diagnosing loading
+  issues related to editable installs and mitmproxy's script loader, culminating
+  in using the absolute file path workaround in `runner.py` (though the root
+  cause might be specific to mitmproxy/environment interaction).
+  _Self-correction: Reverted runner to use dotted path after user confirmed
+  direct mitmproxy call worked with fixes._ [Note: Final state uses dotted
+  path in runner after fixing internal errors].
+
 ## 0.4.0 - 2025-04-03
 
 ### Added

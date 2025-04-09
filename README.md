@@ -1,121 +1,117 @@
 # nightcrawler-mitm
 
+Version: 0.5.0
+
 A mitmproxy addon for background passive analysis, crawling, and basic active
 scanning, designed as a security researcher's sidekick.
 
-**WARNING: Beta Stage - Use with caution, especially active scanning features**
+**WARNING: Alpha Stage - Use with caution, especially active scanning features
+**
 
 ## FEATURES
 
 - Acts as an HTTP/HTTPS proxy.
-- Performs passive analysis (security headers, cookie attributes, basic info
-  disclosure).
-- Crawls the target application to discover new endpoints based on visited
-  pages.
-- Runs basic active scans for low-hanging fruit (Reflected XSS, basic SQLi -
-  Error/Time-based) in the background.
-- All output and logs are directed to the console.
-- Target scope is configurable via command-line argument.
+- Performs passive analysis:
+  - Security Headers (HSTS, CSP, XCTO, XFO, Referrer-Policy, Permissions-Policy,
+    COOP, COEP, CORP, basic weakness checks).
+  - Cookie Attributes (Secure, HttpOnly, SameSite).
+  - JWT Detection & Decoding (in Headers and JSON responses).
+  - Basic Info Disclosure checks (Comments, basic keyword context - Note:
+    API/Key/Secret checks temporarily disabled).
+- Crawls the target application to discover new endpoints.
+- Runs basic active scans for low-hanging fruit:
+  - Reflected XSS (basic reflection check).
+  - SQL Injection (basic error/time-based checks).
+  - Stored XSS (basic probe injection and revisit check).
+- Configurable target scope, concurrency, payloads, and output via command-line
+  options.
+- Logs findings to console and optionally to a JSONL file.
 
 ## INSTALLATION
 
-You can install `nightcrawler` directly from PyPI using pip:
+You can install `nightcrawler-mitm` directly from PyPI using pip (once
+published):
 
-pip install nightcrawler-mitm
+# pip install nightcrawler-mitm
 
-It's recommended to install it in a virtual environment.
+It's recommended to install it in a virtual environment. For development/local
+testing:
+
+# Navigate to project root directory (containing pyproject.toml)
+
+# Activate your virtual environment (e.g., source .venv/bin/activate)
+
+pip install -e .
 
 ## USAGE
 
 Once installed, a new command `nightcrawler` becomes available. This command
-wraps `mitmdump`, automatically loading the nightcrawler addon. You MUST specify
-the target scope using the `--nc-scope` option.
+wraps `mitmdump`, automatically loading the addon. You MUST specify the target
+scope using the `--set nc_scope=...` option.
 
 You can pass any other valid `mitmproxy` arguments (like `--ssl-insecure`, `-p`,
-`-v`) to the `nightcrawler` command.
+`-v`) AND Nightcrawler-specific options using the `--set name=value` syntax.
 
-1. Configure your Browser/Client: Set your browser (or system) to use 127.0.0.1
-   on port 8080 (or the port you specify using -p) as its HTTP and HTTPS proxy.
-
-2. Install Mitmproxy CA Certificate: For HTTPS interception, ensure the
-   mitmproxy CA certificate is installed and trusted in your browser/system.
-   While the proxy is running, visit <http://mitm.it> and follow the
-   instructions.
-
+1. Configure Browser/Client: Set proxy to 127.0.0.1:8080 (or specified port).
+2. Install Mitmproxy CA Certificate: Visit <http://mitm.it> via proxy.
 3. Run Nightcrawler:
 
-   - Specify Target Scope (REQUIRED!): nightcrawler --nc-scope example.com
+   - Specify Target Scope (REQUIRED!): nightcrawler --set nc_scope=example.com
 
-   - Multiple domains (comma-separated, no spaces): nightcrawler --nc-scope
-     example.com,sub.example.com,another.net
-
-   - Common Options (Combine as needed): nightcrawler -p 8081 --nc-scope
-     example.com nightcrawler --ssl-insecure --nc-scope internal-site.local
-     nightcrawler -v --nc-scope example.com # Use -v or -vv for debug logs
-     nightcrawler --nc-max-concurrency 10 --nc-scope secure.com nightcrawler
-     --nc-sqli-payload-file sqli.txt --nc-scope test.org
+   - Common Options (Combine as needed): nightcrawler -p 8081 --set
+     nc_scope=example.com nightcrawler --ssl-insecure --set
+     nc_scope=internal-site.local nightcrawler -v --set nc_scope=example.com #
+     Use -v or -vv for debug logs nightcrawler --set nc_max_concurrency=10 --set
+     nc_scope=secure.com nightcrawler --set nc_sqli_payload_file=sqli.txt --set
+     nc_output_file=findings.jsonl --set nc_scope=test.org
 
    - Show Nightcrawler & Mitmproxy version: nightcrawler --version
 
-   - Show all Nightcrawler and Mitmproxy options: nightcrawler --help
+   - Show all Nightcrawler and Mitmproxy options (look for 'nc\_' prefix):
+     nightcrawler --options
 
-   NOTE: If --nc-scope is not provided, Nightcrawler will run but will not
-   process any requests.
+   NOTE: If nc_scope is not set, Nightcrawler will run but remain idle.
 
-4. Browse: Start Browse the target application(s) specified in the scope. Output
-   from passive analysis, crawling, and active scans will appear in the terminal
-   where `nightcrawler` is running. Look for [Passive Scan], [CRAWLER
-   DISCOVERY],
-   [SQLi FOUND?], [XSS FOUND?], [STORED XSS? FOUND] messages.
+4. Browse: Browse the target application(s). Findings appear in the terminal and
+   optionally in the specified JSONL file.
 
-## CONFIGURATION
+## CONFIGURATION VIA COMMAND LINE (--set)
 
-Nightcrawler uses mitmproxy's option system. Pass arguments when running the
-`nightcrawler` command:
+Use mitmproxy's `--set name=value` syntax:
 
-- `--nc-scope DOMAIN[,DOMAIN,...]` (Required): Target domain(s)
-  (comma-separated).
-- `--nc-max-concurrency INT` (Default: 5): Max concurrent background tasks.
-- `--nc-user-agent STRING` (Default: Nightcrawler-MITM/x.y.z): User-Agent for
-  worker requests.
-- `--nc-payload-max-age INT` (Default: 3600): Max age (seconds) for tracking
+- `--set nc_scope=DOMAIN[,DOMAIN,...]` (Required): Target domain(s).
+- `--set nc_max_concurrency=INT` (Default: 5): Max concurrent background tasks.
+- `--set nc_user_agent=STRING` (Default: Nightcrawler-MITM/x.y.z): User-Agent
+  for worker requests.
+- `--set nc_payload_max_age=INT` (Default: 3600): Max age (seconds) for tracking
   Stored XSS probes.
-- `--nc-sqli-payload-file FILEPATH` (Default: Uses built-in list): File with
-  SQLi payloads (one per line).
-- `--nc-xss-reflected-payload-file FILEPATH` (Default: Uses built-in list): File
-  with Reflected XSS payloads (one per line).
-- `--nc-xss-stored-prefix STRING` (Default: "ncXSS"): Prefix for unique Stored
-  XSS probe IDs.
-- `--nc-xss-stored-format STRING` (Default: ""): Format string for Stored XSS
-  probe payload (must contain `{probe_id}`).
-
-You can also use standard mitmproxy options like `-p PORT`,
-`--listen-host HOST`, `--ssl-insecure`, `-v`, `-vv`, etc.
+- `--set nc_sqli_payload_file=FILEPATH` (Default: Uses built-in list): File with
+  SQLi payloads.
+- `--set nc_xss_reflected_payload_file=FILEPATH` (Default: Uses built-in list):
+  File with Reflected XSS payloads.
+- `--set nc_xss_stored_prefix=STRING` (Default: "ncXSS"): Prefix for unique
+  Stored XSS probe IDs.
+- `--set nc_xss_stored_format=STRING` (Default: ""): Format for Stored XSS
+  probe.
+- `--set nc_output_file=FILEPATH` (Default: "" - Disabled): Path to save
+  findings in JSONL format.
 
 ## LIMITATIONS
 
-- Basic Active Scans: The SQLi and XSS scanners are very basic and intended only
-  for obvious low-hanging fruit. They CANNOT detect complex vulnerabilities
-  (e.g., Stored XSS, blind SQLi beyond time-based, DOM XSS, template injection,
-  etc.). DO NOT rely solely on this tool for comprehensive vulnerability
-  assessment.
-
-- Stored XSS: The current XSS scanner only checks for immediate reflection and
-  CANNOT detect Stored XSS.
-
-- Resource Usage: Background crawling and scanning can consume significant
-  network bandwidth, CPU, and memory resources. Adjust MAX_CONCURRENT_SCANS in
-  `config.py` if needed.
-
-- False Positives/Negatives: Expect potential false positives (especially from
-  passive checks or simple XSS reflection) and many false negatives
-  (vulnerabilities missed by the basic scanners).
+- Basic Active Scans: Scanners are basic, intended for low-hanging fruit. Cannot
+  detect complex vulnerabilities. DO NOT rely solely on this tool.
+- Stored XSS Detection: Basic implementation, may miss cases and have FPs.
+- Info Disclosure: Content checks for keys/secrets are basic and currently
+  disabled pending refactoring.
+- Resource Usage: Tune `--set nc_max_concurrency`.
+- False Positives/Negatives: Expected. Manual verification is required.
 
 ## LICENSE
 
-This project is licensed under the [MIT License]. See the LICENSE file for details.
+This project is licensed under the MIT License. See the LICENSE file for
+details.
 
 ## CONTRIBUTING (Optional)
 
-Contributions are welcome! Please open an issue or submit a pull request on the
-GitHub repository: [https://github.com/thesp0nge/nightcrawler-mitm]
+Contributions welcome! See the GitHub repository:
+<https://github.com/thesp0nge/nightcrawler-mitm>
