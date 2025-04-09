@@ -52,9 +52,7 @@ DEFAULT_XSS_REFLECTED_PAYLOADS = [
 DEFAULT_XSS_STORED_PREFIX = "ncXSS"
 DEFAULT_XSS_STORED_FORMAT = "<!-- {probe_id} -->"
 DEFAULT_MAX_CONCURRENCY = 5
-DEFAULT_USER_AGENT = (
-    f"Nightcrawler-MITM/{getattr(__import__('nightcrawler'), '__version__', 'unknown')}"
-)
+DEFAULT_USER_AGENT = f"Nightcrawler-MITM/{nightcrawler_version}"
 DEFAULT_PAYLOAD_MAX_AGE = 3600  # 1 hour
 
 
