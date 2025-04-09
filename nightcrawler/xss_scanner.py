@@ -1,19 +1,18 @@
 # nightcrawler/xss_scanner.py
+# Contains logic for basic Reflected XSS scanning and Stored XSS injection.
+
 import httpx
 import time
 import random
 from mitmproxy import ctx
 from typing import Dict, Any, List, TYPE_CHECKING
 
-# Import default payloads only as fallbacks if needed, main config from options
-# from nightcrawler.config import DEFAULT_XSS_REFLECTED_PAYLOADS, DEFAULT_XSS_STORED_PREFIX, DEFAULT_XSS_STORED_FORMAT # Not needed directly here
-
-# Type hint for MainAddon without causing circular import during type checking
+# Type hint for MainAddon to allow calling its methods like _log_finding, register_injection
+# Avoids circular import error during static analysis.
 if TYPE_CHECKING:
     from nightcrawler.addon import MainAddon
 
-
-# --- Reflected XSS Scan ---
+# --- Reflected XSS Scan (Logs only first finding per parameter, includes header fix) ---
 
 
 async def scan_xss_reflected_basic(
@@ -26,11 +25,11 @@ async def scan_xss_reflected_basic(
     """
     Attempts basic reflected XSS payloads provided in the list by checking
     for immediate, exact reflection in the HTML response.
+    Logs only the FIRST successful payload found for each parameter.
     Filters problematic headers before sending requests.
-    Logs findings using the provided addon_instance.
     """
     url = target_info["url"]
-    method = target_info["method"].upper()  # Ensure method is uppercase
+    method = target_info["method"].upper()
     original_params = target_info["params"]
     original_data = target_info["data"]
     original_headers = target_info["headers"]  # Get original headers
@@ -44,25 +43,44 @@ async def scan_xss_reflected_basic(
         )
         return
 
-    # ctx.log.debug(f"[XSS Reflected Scan] Starting for {url}...") # Caller logs this
+    # ctx.log.debug(f"[XSS Reflected Scan] Starting for {url}...") # Caller logs start of scans
 
+    # Loop through each parameter identified in the original request
     for param_name in params_to_fuzz:
+        # Flag to track if a finding has already been logged for this specific parameter
+        finding_logged_for_this_param = False
+
         # ctx.log.debug(f"[XSS Reflected Scan] Fuzzing parameter: {param_name}") # Verbose
+
+        # Loop through each payload for the current parameter
         for payload in payloads:
+            # If we already found and logged a working payload for this parameter,
+            # skip testing other payloads for it.
+            if finding_logged_for_this_param:
+                ctx.log.debug(
+                    f"[XSS Reflected Scan] Finding already logged for param '{param_name}', skipping remaining payloads."
+                )
+                break  # Exit the inner payload loop
+
             current_params = original_params.copy()
             current_data = original_data.copy()
             is_param_in_query = param_name in current_params
+            # Inject payload (replacing original value for reflected)
             if is_param_in_query:
                 current_params[param_name] = payload
             else:
                 current_data[param_name] = payload
 
+            # Define details for logging BEFORE the try block
             payload_info_detail = (
                 f"Param: {param_name}, Payload Snippet: {payload[:50]}..."
             )
-            payload_info_evidence = {"param": param_name, "payload": payload[:100]}
+            payload_info_evidence = {
+                "param": param_name,
+                "payload": payload[:100],
+            }  # Truncate long payloads
 
-            # --- Prepare Filtered Headers ---
+            # --- Prepare Filtered Headers (Fix for Content-Length issue) ---
             request_headers = {
                 k: v
                 for k, v in original_headers.items()
@@ -73,22 +91,25 @@ async def scan_xss_reflected_basic(
             if method == "POST" and "content-type" not in request_headers:
                 original_content_type = original_headers.get("content-type")
                 # Add it back only if it was originally present and relevant (e.g., urlencoded)
-                if original_content_type and "urlencoded" in original_content_type:
+                if (
+                    original_content_type
+                    and "urlencoded" in original_content_type.lower()
+                ):
                     request_headers["content-type"] = original_content_type
             # --- End Header Preparation ---
 
             try:
                 # Send request using the FILTERED headers
+                # ctx.log.debug(f"[XSS Reflected Scan] Sending payload '{payload[:20]}...'") # Verbose
                 response = await http_client.request(
                     method,
-                    url.split("?")[0]
-                    if is_param_in_query
-                    else url,  # Base URL if modifying query params
+                    url.split("?")[0] if is_param_in_query else url,
                     params=current_params if is_param_in_query else original_params,
                     data=current_data if not is_param_in_query else original_data,
-                    headers=request_headers,  # <-- USA GLI HEADER FILTRATI
+                    headers=request_headers,  # <-- Use the filtered headers
                     cookies=cookies,
                 )
+                # ctx.log.debug(f"[XSS Reflected Scan] Received response (Status: {response.status_code})") # Verbose
 
                 # --- Basic Reflected XSS Response Analysis ---
                 content_type = response.headers.get("Content-Type", "")
@@ -98,35 +119,45 @@ async def scan_xss_reflected_basic(
                         response_text = response.text
                     except Exception:
                         pass
-                    # Check for reflection
+
+                    # Check for exact reflection
                     reflection_check_result = False
                     if response_text:
                         reflection_check_result = payload in response_text
-                    # Log finding if reflected
-                    if reflection_check_result:
-                        addon_instance._log_finding(
+
+                    # --- Log only if check passes AND not already logged for this param ---
+                    if reflection_check_result and not finding_logged_for_this_param:
+                        addon_instance._log_finding(  # Log via addon instance
                             level="ERROR",
                             finding_type="XSS Found? (Reflected)",
                             url=url,
                             detail=payload_info_detail,
                             evidence=payload_info_evidence,
                         )
+                        # Set flag and break inner loop after first successful payload
+                        finding_logged_for_this_param = True
+                        break  # Stop testing other payloads for this parameter
+
             except httpx.TimeoutException:
-                addon_instance._log_finding(
-                    level="WARN",
-                    finding_type="XSS Reflected Scan Timeout",
-                    url=url,
-                    detail=f"Timeout sending payload. {payload_info_detail}",
-                    evidence=payload_info_evidence,
-                )
+                # Log timeout only if we haven't already found a vulnerability for this param
+                if not finding_logged_for_this_param:
+                    addon_instance._log_finding(
+                        level="WARN",
+                        finding_type="XSS Reflected Scan Timeout",
+                        url=url,
+                        detail=f"Timeout sending payload. {payload_info_detail}",
+                        evidence=payload_info_evidence,
+                    )
             except Exception as e:
-                # Log other exceptions (should not be Content-Length now)
+                # Log other exceptions using ctx.log.debug
                 ctx.log.debug(
                     f"[XSS Reflected Scan] Exception during payload send/recv: {e} ({payload_info_detail})"
                 )
 
+    # ctx.log.debug(f"[XSS Reflected Scan] Finished for {url}") # Caller logs overall finish
 
-# --- Stored XSS Injection Attempt ---
+
+# --- Stored XSS Injection Attempt (Includes Header Fix) ---
 
 
 async def scan_xss_stored_inject(
@@ -143,7 +174,7 @@ async def scan_xss_stored_inject(
     Filters problematic headers before sending requests.
     """
     url = target_info["url"]
-    method = target_info["method"].upper()  # Ensure method is uppercase
+    method = target_info["method"].upper()
     original_params = target_info["params"]
     original_data = target_info["data"]
     original_headers = target_info["headers"]  # Get original headers
@@ -153,15 +184,13 @@ async def scan_xss_stored_inject(
         return
     # Validate format string contains the placeholder before starting loop
     if "{probe_id}" not in payload_format:
-        # This error should ideally be caught earlier, but double-check here
         ctx.log.error(
             f"[XSS Stored Inject] Invalid payload format received: '{payload_format}'. Skipping for {url}."
         )
         return
 
-    ctx.log.debug(
-        f"[XSS Stored Inject] Starting injection attempts for {url} (Params: {params_to_fuzz})"
-    )
+    # ctx.log.debug(f"[XSS Stored Inject] Starting attempts for {url}...") # Caller logs this
+
     for param_name in params_to_fuzz:
         # Generate unique ID using the configured prefix
         probe_id = f"{probe_prefix}_{int(time.time())}_{random.randint(1000,9999)}_{param_name}"
@@ -173,7 +202,7 @@ async def scan_xss_stored_inject(
             )
             continue
 
-        # Create copies and inject payload (appending is often better for stored checks)
+        # Create copies and inject payload (appending for stored checks)
         current_params = original_params.copy()
         current_data = original_data.copy()
         is_param_in_query = param_name in current_params
@@ -188,27 +217,27 @@ async def scan_xss_stored_inject(
         else:
             current_data[param_name] = injected_value
 
+        # Define details BEFORE try block for use in except block
         payload_info = f"URL: {url}, Param: {param_name}, ProbeID: {probe_id}"
 
-        # --- Prepare Filtered Headers ---
+        # --- Prepare Filtered Headers (Fix for Content-Length issue) ---
         request_headers = {
             k: v
             for k, v in original_headers.items()
-            # Filter out headers that httpx should manage or that cause issues
             if k.lower() not in ["content-length", "host", "transfer-encoding"]
         }
-        # Ensure Content-Type is preserved for POST/PUT etc. if it was urlencoded originally
         if method in ["POST", "PUT", "PATCH"] and "content-type" not in request_headers:
             original_content_type = original_headers.get("content-type")
-            if (
-                original_content_type and "urlencoded" in original_content_type
-            ):  # Be specific for urlencoded
+            if original_content_type and (
+                "urlencoded" in original_content_type.lower()
+                or "json" in original_content_type.lower()
+            ):  # Preserve common types
                 request_headers["content-type"] = original_content_type
         # --- End Header Preparation ---
 
         try:
             # ctx.log.debug(f"[XSS Stored Inject] Sending probe '{probe_id}' to param '{param_name}'...") # Verbose
-            # Send the request using the *filtered* headers
+            # Send the request using the FILTERED headers
             response = await http_client.request(
                 method,
                 url.split("?")[0] if is_param_in_query else url,
@@ -219,7 +248,7 @@ async def scan_xss_stored_inject(
             )
             # ctx.log.debug(f"[XSS Stored Inject] Received response (Status: {response.status_code})") # Verbose
 
-            # --- Register the injection attempt via the addon instance ---
+            # --- Register the injection attempt ---
             injection_details = {
                 "url": url,
                 "param_name": param_name,
@@ -229,6 +258,9 @@ async def scan_xss_stored_inject(
             }
             addon_instance.register_injection(probe_id, injection_details)
 
+            # Optional: Add redirect URLs from response to revisit queue?
+            # ... (logic for redirects can be added here if desired) ...
+
         except httpx.TimeoutException:
             ctx.log.warn(f"[XSS Stored Inject] Timeout sending probe: {payload_info}")
         except Exception as e:
@@ -236,6 +268,7 @@ async def scan_xss_stored_inject(
                 f"[XSS Stored Inject] Exception during probe send/recv: {e} ({payload_info})"
             )
 
+    # ctx.log.debug(f"[XSS Stored Inject] Finished attempts for {url}") # Caller logs finish
+
 
 # End of nightcrawler/xss_scanner.py
-
