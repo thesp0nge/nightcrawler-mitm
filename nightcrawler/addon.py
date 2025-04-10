@@ -38,6 +38,8 @@ try:
         handle_websocket_end,
     )
 
+    from nightcrawler.active_scans.traversal import scan_directory_traversal
+
     # Import package version
     from nightcrawler import __version__ as nightcrawler_version
 except ImportError as e:
@@ -888,6 +890,10 @@ class MainAddon:
                             self.xss_stored_prefix,
                             self.xss_stored_format,
                         )
+                        await scan_directory_traversal(
+                            scan_details, cookies, self.http_client, self
+                        )
+
                         if target_method in ["POST", "PUT", "PATCH"]:
                             revisit_url = scan_details["url"]
                             if revisit_url not in self.revisit_in_progress:

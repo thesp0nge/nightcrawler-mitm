@@ -10,6 +10,7 @@ pytest-mock>=3.5.0
 # Packaging and Uploading
 build>=0.10.0
 twine>=4.0.0
+respx>=0.22.0
 
 # Optional Linters/Formatters/Type Checkers
 # ruff
