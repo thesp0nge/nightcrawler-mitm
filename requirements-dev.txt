@@ -1,0 +1,20 @@
+# Development and Testing Dependencies for Nightcrawler-MITM
+
+# Include runtime dependencies specified in requirements.txt
+-r requirements.txt
+
+# --- Testing Frameworks & Plugins ---
+pytest>=7.0.0     # Core testing framework
+pytest-asyncio>=0.18.0 # Plugin for testing asynchronous code with pytest
+pytest-httpx>=0.20.0 # Plugin for mocking HTTP requests made via httpx
+pytest-mock>=3.5.0  # Pytest fixture integration for unittest.mock
+
+# --- Packaging and Uploading ---
+build>=0.10.0     # Tool for building the package (sdist, wheel)
+twine>=4.0.0      # Tool for uploading packages to PyPI
+
+# --- Optional: Linters / Formatters / Type Checkers ---
+# Consider adding these for code quality:
+# ruff            # Fast linter and formatter
+# black           # Opinionated code formatter
+# mypy            # Static type checker

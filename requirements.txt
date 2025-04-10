@@ -1,0 +1,6 @@
+# Runtime dependencies for Nightcrawler-MITM
+# These should generally match [project.dependencies] in pyproject.toml
+
+mitmproxy>=10.0.0
+httpx>=0.25.0
+beautifulsoup4>=4.10.0
