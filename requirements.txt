@@ -4,3 +4,4 @@
 mitmproxy>=10.0.0
 httpx>=0.25.0
 beautifulsoup4>=4.10.0
+PyYAML>=6.0 

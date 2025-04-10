@@ -1,6 +1,7 @@
 # nightcrawler/addon.py
 import mitmproxy.http
 from mitmproxy import ctx, http, addonmanager
+import sys
 import asyncio
 import httpx
 import time
@@ -8,6 +9,7 @@ import pathlib  # Needed for output file path and payload loading
 import random  # Needed for payload ID generation
 import json  # Added for JSONL output
 import datetime  # Added for timestamp
+import html  # For escaping HTML in report
 import logging  # Added for fallback logging if ctx not ready
 import traceback
 from typing import Set, Dict, Any, Optional, List, TYPE_CHECKING
@@ -72,6 +74,7 @@ class MainAddon:
         self.injected_payloads: Dict[str, Dict[str, Any]] = {}
         self.revisit_in_progress: Set[str] = set()
         self.websocket_hosts_logged: Set[str] = set()
+        self.report_findings: List[Dict[str, Any]] = []
 
         self.semaphore: Optional[asyncio.Semaphore] = None
         self.http_client: Optional[httpx.AsyncClient] = None
@@ -89,6 +92,9 @@ class MainAddon:
         self.xss_stored_prefix: str = DEFAULT_XSS_STORED_PREFIX
         self.xss_stored_format: str = DEFAULT_XSS_STORED_FORMAT
         self.output_filepath: Optional[pathlib.Path] = None
+        self.html_report_filepath: Optional[pathlib.Path] = (
+            None  # HTML report file path
+        )
         self._output_file_error_logged: bool = False
         self._configured_once: bool = False
 
@@ -154,6 +160,12 @@ class MainAddon:
             typespec=bool,  # Tipo booleano
             default=False,  # Default: non ispezionare i messaggi
             help="Enable detailed logging of individual WebSocket messages.",
+        )
+        loader.add_option(
+            name="nc_output_html",
+            typespec=str,  # Expecting a filepath string
+            default="",  # Default is disabled
+            help="File path to save findings summary in HTML format (e.g., report.html).",
         )
 
     def configure(self, updated: Set[str]):
@@ -229,6 +241,28 @@ class MainAddon:
             else:
                 ctx.log.info("Detailed WebSocket message inspection DISABLED.")
 
+        if "nc_output_html" in updated or is_initial_config:
+            filepath = ctx.options.nc_output_html
+            if filepath:
+                try:
+                    resolved_path = pathlib.Path(filepath).resolve()
+                    resolved_path.parent.mkdir(
+                        parents=True, exist_ok=True
+                    )  # Ensure directory exists
+                    # We don't write immediately, just store the path
+                    self.html_report_filepath = resolved_path
+                    ctx.log.info(
+                        f"HTML report will be generated at: {self.html_report_filepath}"
+                    )
+                except Exception as e:
+                    ctx.log.error(
+                        f"Cannot use specified HTML report path '{filepath}': {e}. HTML report disabled."
+                    )
+                    self.html_report_filepath = None
+            else:
+                self.html_report_filepath = None
+
+        # THIS MUST BE THE LAST LINE :-)
         self._configured_once = True
 
     def _load_payloads_from_file(
@@ -269,11 +303,8 @@ class MainAddon:
         detail: str,
         evidence: Optional[Dict] = None,
     ):
-        """Logs finding to console and optionally to JSONL file."""
-        ctx.log.debug(
-            f"[DEBUG][_log_finding called] Level='{level}', Type='{finding_type}', URL='{url[:50]}...'"
-        )
-
+        """Logs finding to console, optionally to JSONL file, and collects for HTML report."""
+        # 1. Log to Console (using ctx.log)
         log_func = getattr(ctx.log, level.lower(), ctx.log.info)
         log_message = f"[{finding_type}] {detail} at {url}"
         if evidence:
@@ -287,27 +318,154 @@ class MainAddon:
             print(
                 f"FALLBACK LOG ({level}): {log_message}\nLog err: {e}", file=sys.stderr
             )
+
+        # Prepare structured data (used for both JSONL and HTML report)
+        finding_data = {
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "level": level.upper(),
+            "type": finding_type,
+            "url": url,
+            "detail": detail,
+            "evidence": evidence if evidence is not None else {},
+        }
+
+        # 2. Log to JSONL file if configured
         if self.output_filepath:
             try:
-                finding_data = {
-                    "timestamp": datetime.datetime.now(
-                        datetime.timezone.utc
-                    ).isoformat(),
-                    "level": level.upper(),
-                    "type": finding_type,
-                    "url": url,
-                    "detail": detail,
-                    "evidence": evidence or {},
-                }
                 with open(self.output_filepath, "a", encoding="utf-8") as f:
                     json.dump(finding_data, f, ensure_ascii=False)
                     f.write("\n")
             except Exception as e:
                 if not self._output_file_error_logged:
                     ctx.log.error(
-                        f"Failed write to output '{self.output_filepath}': {e}"
+                        f"Failed write to JSONL '{self.output_filepath}': {e}"
                     )
                     self._output_file_error_logged = True
+
+        if self.html_report_filepath:
+            self.report_findings.append(finding_data)
+
+    def _generate_html_report(self):
+        """Generates a simple HTML report from collected findings."""
+        if not self.html_report_filepath or not self.report_findings:
+            ctx.log.debug("HTML report disabled or no findings to report.")
+            return
+
+        ctx.log.info(f"Generating HTML report at: {self.html_report_filepath}")
+        start_time = time.time()
+
+        # Sort findings (e.g., by severity then URL)
+        # Define severity order for sorting
+        severity_order = {"ERROR": 0, "WARN": 1, "INFO": 2}
+        sorted_findings = sorted(
+            self.report_findings,
+            key=lambda x: (
+                severity_order.get(x.get("level", "INFO"), 99),
+                x.get("url", ""),
+            ),
+        )
+
+        # Basic HTML structure with embedded CSS
+        html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nightcrawler Scan Report</title>
+    <style>
+        body {{ font-family: sans-serif; margin: 20px; }}
+        h1, h2 {{ color: #333; border-bottom: 1px solid #ccc; padding-bottom: 5px; }}
+        table {{ width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.9em; }}
+        th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: top; }}
+        th {{ background-color: #f2f2f2; }}
+        tr:nth-child(even) {{ background-color: #f9f9f9; }}
+        pre {{ background-color: #eee; padding: 5px; border: 1px solid #ccc; white-space: pre-wrap; word-wrap: break-word; margin: 0; font-size: 0.85em; }}
+        .level-ERROR {{ color: red; font-weight: bold; }}
+        .level-WARN {{ color: orange; font-weight: bold; }}
+        .level-INFO {{ color: blue; }}
+        .evidence-key {{ font-weight: bold; }}
+    </style>
+</head>
+<body>
+    <h1>Nightcrawler Scan Report</h1>
+    <p>Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+    <h2>Summary</h2>
+    <p>Total Findings: {len(sorted_findings)}</p>
+    <h2>Findings Details</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Timestamp (UTC)</th>
+                <th>Level</th>
+                <th>Type</th>
+                <th>URL / Context</th>
+                <th>Detail</th>
+                <th>Evidence</th>
+            </tr>
+        </thead>
+        <tbody>
+"""
+        # Add table rows for each finding
+        for finding in sorted_findings:
+            ts = finding.get("timestamp", "N/A")
+            level = finding.get("level", "INFO")
+            ftype = finding.get("type", "N/A")
+            url = finding.get("url", "N/A")
+            detail = finding.get("detail", "")
+            evidence = finding.get("evidence", {})
+
+            # Escape HTML special characters in data
+            ts_esc = html.escape(ts)
+            level_esc = html.escape(level)
+            ftype_esc = html.escape(ftype)
+            url_esc = html.escape(url)
+            detail_esc = html.escape(detail)
+
+            # Format evidence nicely
+            evidence_html = ""
+            if evidence:
+                evidence_items = []
+                for k, v in evidence.items():
+                    # Simple formatting, could be improved (e.g., handle nested dicts/lists)
+                    evidence_items.append(
+                        f'<div><span class="evidence-key">{html.escape(k)}:</span> <pre>{html.escape(str(v))}</pre></div>'
+                    )
+                evidence_html = "\n".join(evidence_items)
+            else:
+                evidence_html = "N/A"
+
+            html_content += f"""
+            <tr>
+                <td>{ts_esc}</td>
+                <td class="level-{level_esc}">{level_esc}</td>
+                <td>{ftype_esc}</td>
+                <td><pre>{url_esc}</pre></td>
+                <td>{detail_esc}</td>
+                <td>{evidence_html}</td>
+            </tr>
+"""
+
+        # Close HTML structure
+        html_content += """
+        </tbody>
+    </table>
+</body>
+</html>
+"""
+        # Write the HTML content to the file
+        try:
+            with open(self.html_report_filepath, "w", encoding="utf-8") as f:
+                f.write(html_content)
+            elapsed = time.time() - start_time
+            ctx.log.info(
+                f"HTML report generated successfully in {elapsed:.2f} seconds."
+            )
+        except Exception as e:
+            ctx.log.error(
+                f"Failed to write HTML report to '{self.html_report_filepath}': {e}"
+            )
+
+    # --- END of HTML report generation method ---
 
     def running(self):
         """Initialize resources and start workers."""
@@ -359,7 +517,6 @@ class MainAddon:
 
     async def done(self):
         """Hook called on mitmproxy shutdown for resource cleanup."""
-        # --- Logic unchanged ---
         ctx.log.info("Main Addon: Shutting down...")
         tasks_to_cancel: list[asyncio.Task] = []
         if self.scan_worker_task and not self.scan_worker_task.done():
@@ -386,6 +543,8 @@ class MainAddon:
             await self.http_client.aclose()
             ctx.log.info("Shared HTTP client closed.")
             self.http_client = None
+
+        self._generate_html_report()
         ctx.log.info("Main Addon: Shutdown complete.")
 
     # --- Method to Register Injected Payloads ---

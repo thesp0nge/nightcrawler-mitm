@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 # --- Core Metadata ---
 name = "nightcrawler-mitm"
-version = "0.5.0" 
+version = "0.6.0" 
 description = "A mitmproxy addon for background passive analysis, crawling, and basic active scanning."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -42,6 +42,7 @@ dependencies = [
     "mitmproxy>=10.0.0",
     "httpx>=0.25.0",
     "beautifulsoup4>=4.10.0",
+    "PyYAML>=6.0",
 ]
 
 # --- Project URLs (Optional but recommended) ---

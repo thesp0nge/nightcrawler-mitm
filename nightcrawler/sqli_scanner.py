@@ -71,6 +71,9 @@ async def scan_sqli_basic(
                 ):  # Or check other relevant types if needed
                     request_headers["content-type"] = original_content_type
             # --- End Header Preparation ---
+            if cookies:
+                cookie_string = "; ".join([f"{k}={v}" for k, v in cookies.items()])
+                request_headers["Cookie"] = cookie_string
 
             try:
                 # ctx.log.debug(f"[SQLi Scan] Sending payload '{payload}' to param '{param_name}'...") # Verbose
@@ -82,7 +85,6 @@ async def scan_sqli_basic(
                     params=current_params if is_param_in_query else original_params,
                     data=current_data if not is_param_in_query else original_data,
                     headers=request_headers,  # <-- USE FILTERED HEADERS
-                    cookies=cookies,
                 )
                 duration = time.time() - start_time
                 # ctx.log.debug(f"[SQLi Scan] Received response (Status: {response.status_code}, Duration: {duration:.2f}s)") # Verbose
