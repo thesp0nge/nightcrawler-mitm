@@ -12,6 +12,8 @@ import datetime  # Added for timestamp
 import html  # For escaping HTML in report
 import logging  # Added for fallback logging if ctx not ready
 import traceback
+import os  # Needed for path expansion and env vars
+import yaml  # Needed for YAML config loading
 from typing import Set, Dict, Any, Optional, List, TYPE_CHECKING
 
 # --- Imports from local package modules ---
@@ -58,6 +60,30 @@ DEFAULT_USER_AGENT = f"Nightcrawler-MITM/{nightcrawler_version}"
 DEFAULT_PAYLOAD_MAX_AGE = 3600  # 1 hour
 
 
+def _get_default_config_dir() -> pathlib.Path:
+    """Gets the default config directory path based on XDG standards."""
+    xdg_config_home = os.environ.get("XDG_CONFIG_HOME")
+    if xdg_config_home:
+        return pathlib.Path(xdg_config_home) / "nightcrawler-mitm"
+    else:
+        # Fallback for non-XDG systems (e.g., Windows, or if var not set)
+        return pathlib.Path.home() / ".config" / "nightcrawler-mitm"
+
+
+def _get_default_data_dir() -> pathlib.Path:
+    """Gets the default data directory path based on XDG standards."""
+    xdg_data_home = os.environ.get("XDG_DATA_HOME")
+    if xdg_data_home:
+        return pathlib.Path(xdg_data_home) / "nightcrawler-mitm"
+    else:
+        # Fallback for non-XDG systems
+        return pathlib.Path.home() / ".local" / "share" / "nightcrawler-mitm"
+
+
+DEFAULT_CONFIG_FILE_PATH = _get_default_config_dir() / "config.yaml"
+DEFAULT_DATA_DIR_PATH = _get_default_data_dir()
+
+
 class MainAddon:
     """
     Main mitmproxy addon orchestrating background security tasks.
@@ -83,7 +109,9 @@ class MainAddon:
         self.revisit_worker_task: Optional[asyncio.Task] = None
 
         self.effective_scope: Set[str] = set()
-        # Config values - populated in 'configure'
+
+        # --- Config values (initialized with code defaults, updated in 'configure') ---
+        self.effective_scope: Set[str] = set()
         self.max_concurrency: int = DEFAULT_MAX_CONCURRENCY
         self.user_agent: str = DEFAULT_USER_AGENT
         self.payload_max_age: int = DEFAULT_PAYLOAD_MAX_AGE
@@ -91,16 +119,27 @@ class MainAddon:
         self.xss_reflected_payloads: List[str] = DEFAULT_XSS_REFLECTED_PAYLOADS
         self.xss_stored_prefix: str = DEFAULT_XSS_STORED_PREFIX
         self.xss_stored_format: str = DEFAULT_XSS_STORED_FORMAT
-        self.output_filepath: Optional[pathlib.Path] = None
-        self.html_report_filepath: Optional[pathlib.Path] = (
-            None  # HTML report file path
+        self.output_filepath: Optional[pathlib.Path] = (
+            None  # Final absolute path for JSONL
         )
+        self.html_report_filepath: Optional[pathlib.Path] = (
+            None  # Final absolute path for HTML
+        )
+        self.inspect_websocket: bool = False  # Default for the bool option
+
+        # --- Internal Flags ---
+        self.loaded_config: Dict = {}  # Parsed config file content
         self._output_file_error_logged: bool = False
         self._configured_once: bool = False
 
     def load(self, loader: addonmanager.Loader):
         """Define addon options using 'typespec' argument."""
-        # Use typespec= instead of type= based on user feedback for mitmproxy v11
+        loader.add_option(
+            name="nc_config",
+            typespec=str,
+            default=str(DEFAULT_CONFIG_FILE_PATH),  # Default path as string
+            help=f"Path to the Nightcrawler YAML configuration file (Default: {DEFAULT_CONFIG_FILE_PATH}).",
+        )
         loader.add_option(
             name="nc_scope",
             typespec=str,  # Use typespec
@@ -169,101 +208,193 @@ class MainAddon:
         )
 
     def configure(self, updated: Set[str]):
-        """Process options when they are set or updated."""
-        # --- Logic remains the same, reading from ctx.options.* ---
+        """Process options using precedence: Defaults < Config File < --set."""
+        ctx.log.debug(f"Configure hook called, processing updated options: {updated}")
         is_initial_config = not self._configured_once
-        if "nc_scope" in updated or is_initial_config:
-            scope_str = ctx.options.nc_scope
-            self.effective_scope = (
-                {s.strip() for s in scope_str.split(",") if s.strip()}
-                if scope_str
-                else set()
-            )
-            ctx.log.info(f"Target scope set: {self.effective_scope or 'None'}")
-        if "nc_max_concurrency" in updated or is_initial_config:
-            self.max_concurrency = max(1, ctx.options.nc_max_concurrency)
-            ctx.log.info(f"Max worker concurrency set: {self.max_concurrency}")
-        if "nc_user_agent" in updated or is_initial_config:
-            self.user_agent = ctx.options.nc_user_agent or DEFAULT_USER_AGENT
-            ctx.log.info(f"Scan/Crawl User-Agent set: {self.user_agent}")
-        if "nc_payload_max_age" in updated or is_initial_config:
-            self.payload_max_age = max(60, ctx.options.nc_payload_max_age)
-            ctx.log.info(f"Tracked payload max age set: {self.payload_max_age}s")
-        if "nc_sqli_payload_file" in updated or is_initial_config:
-            self.sqli_payloads = self._load_payloads_from_file(
-                ctx.options.nc_sqli_payload_file, DEFAULT_SQLI_PAYLOADS, "SQLi"
-            )
-            ctx.log.info(f"Loaded {len(self.sqli_payloads)} SQLi payloads.")
-        if "nc_xss_reflected_payload_file" in updated or is_initial_config:
-            self.xss_reflected_payloads = self._load_payloads_from_file(
-                ctx.options.nc_xss_reflected_payload_file,
-                DEFAULT_XSS_REFLECTED_PAYLOADS,
-                "Reflected XSS",
-            )
-            ctx.log.info(
-                f"Loaded {len(self.xss_reflected_payloads)} Reflected XSS payloads."
-            )
-        if "nc_xss_stored_prefix" in updated or is_initial_config:
-            self.xss_stored_prefix = (
-                ctx.options.nc_xss_stored_prefix or DEFAULT_XSS_STORED_PREFIX
-            )
-            ctx.log.info(f"Stored XSS probe prefix: '{self.xss_stored_prefix}'")
-        if "nc_xss_stored_format" in updated or is_initial_config:
-            format_str = ctx.options.nc_xss_stored_format or DEFAULT_XSS_STORED_FORMAT
-            if "{probe_id}" not in format_str:
-                self.xss_stored_format = DEFAULT_XSS_STORED_FORMAT
-                ctx.log.warn(
-                    f"Invalid Stored XSS format '{format_str}'. Using default."
-                )
-            else:
-                self.xss_stored_format = format_str
-            ctx.log.info(f"Stored XSS payload format: '{self.xss_stored_format}'")
-        if "nc_output_file" in updated or is_initial_config:
-            filepath = ctx.options.nc_output_file
-            if filepath:
-                try:
-                    self.output_filepath = pathlib.Path(filepath).resolve()
-                    self.output_filepath.parent.mkdir(parents=True, exist_ok=True)
-                    self.output_filepath.touch(exist_ok=True)
-                    ctx.log.info(f"Findings will save to JSONL: {self.output_filepath}")
-                except Exception as e:
-                    ctx.log.error(
-                        f"Cannot write to output file '{filepath}': {e}. Disabled."
-                    )
-                    self.output_filepath = None
-            else:
-                self.output_filepath = (
-                    None  # ctx.log.info("JSONL output disabled.") # Less verbose
-                )
-        if "nc_inspect_websocket" in updated or not self._configured_once:
-            if ctx.options.nc_inspect_websocket:
-                ctx.log.info("Detailed WebSocket message inspection ENABLED.")
-            else:
-                ctx.log.info("Detailed WebSocket message inspection DISABLED.")
 
-        if "nc_output_html" in updated or is_initial_config:
-            filepath = ctx.options.nc_output_html
-            if filepath:
-                try:
-                    resolved_path = pathlib.Path(filepath).resolve()
-                    resolved_path.parent.mkdir(
-                        parents=True, exist_ok=True
-                    )  # Ensure directory exists
-                    # We don't write immediately, just store the path
-                    self.html_report_filepath = resolved_path
-                    ctx.log.info(
-                        f"HTML report will be generated at: {self.html_report_filepath}"
-                    )
-                except Exception as e:
-                    ctx.log.error(
-                        f"Cannot use specified HTML report path '{filepath}': {e}. HTML report disabled."
-                    )
-                    self.html_report_filepath = None
+        # --- 1. Load Config File ---
+        if "nc_config" in updated or is_initial_config:
+            config_file_path_str = ctx.options.nc_config
+            try:
+                config_file_path = (
+                    pathlib.Path(config_file_path_str).expanduser().resolve()
+                )
+                if config_file_path.is_file():
+                    ctx.log.info(f"Loading configuration from: {config_file_path}")
+                    with open(config_file_path, "r", encoding="utf-8") as f:
+                        self.loaded_config = (
+                            yaml.safe_load(f) or {}
+                        )  # Load YAML, default to empty dict if file is empty
+                    if not isinstance(self.loaded_config, dict):
+                        ctx.log.warn(
+                            f"Config file '{config_file_path}' is not a valid dictionary. Ignoring."
+                        )
+                        self.loaded_config = {}
+                else:
+                    # Only warn if the user specified a path explicitly and it wasn't found
+                    if config_file_path_str != str(DEFAULT_CONFIG_FILE_PATH):
+                        ctx.log.warn(
+                            f"Specified config file not found: {config_file_path}. Using defaults / --set values."
+                        )
+                    # Else, it's normal not to find the default config file on first run
+                    self.loaded_config = {}
+            except (yaml.YAMLError, OSError, Exception) as e:
+                ctx.log.error(
+                    f"Error loading config file '{config_file_path_str}': {e}. Using defaults / --set values."
+                )
+                self.loaded_config = {}
+
+        # --- 2. Determine Effective Config for Each Option (Default < Config File < --set) ---
+        # Helper to get final value based on precedence
+        def get_effective_value(option_name: str, code_default: Any):
+            config_file_value = self.loaded_config.get(
+                option_name
+            )  # Value from YAML file
+            mitm_option_value = getattr(
+                ctx.options, option_name
+            )  # Value from mitmproxy (includes --set and load() default)
+            load_hook_default = (
+                code_default  # Assuming code default matches load() default
+            )
+
+            # Check if --set was likely used (value differs from load() default)
+            if mitm_option_value != load_hook_default:
+                final_value = mitm_option_value  # --set overrides everything
+                source = "--set"
+            elif config_file_value is not None:
+                final_value = config_file_value  # Config file overrides code default
+                source = "config file"
             else:
-                self.html_report_filepath = None
+                final_value = code_default  # Use hardcoded default
+                source = "default"
+
+            # Perform type validation/conversion based on expected type
+            expected_type = type(code_default)
+            validated_value = final_value
+            try:
+                if expected_type == int:
+                    validated_value = int(final_value)
+                elif expected_type == str:
+                    validated_value = str(final_value)
+                elif expected_type == bool:  # Handle bool conversion robustly
+                    if isinstance(final_value, str):
+                        validated_value = final_value.lower() in [
+                            "true",
+                            "1",
+                            "t",
+                            "y",
+                            "yes",
+                        ]
+                    else:
+                        validated_value = bool(final_value)
+                # Add more types if needed
+            except (ValueError, TypeError) as e:
+                ctx.log.warn(
+                    f"Invalid value type '{final_value}' for option '{option_name}' ({source}). Using default '{code_default}'. Error: {e}"
+                )
+                validated_value = code_default
+
+            # Apply specific constraints (e.g., min value)
+            if option_name == "nc_max_concurrency":
+                validated_value = max(1, validated_value)
+            if option_name == "nc_payload_max_age":
+                validated_value = max(60, validated_value)
+            # Validate format string
+            if (
+                option_name == "nc_xss_stored_format"
+                and "{probe_id}" not in validated_value
+            ):
+                ctx.log.warn(
+                    f"Invalid value '{validated_value}' for '{option_name}' ({source}). Missing '{{probe_id}}'. Using default '{code_default}'."
+                )
+                validated_value = code_default
+
+            # Log the source only if debugging or if it changed
+            # ctx.log.debug(f"Effective value for {option_name}: '{validated_value}' (Source: {source})")
+            return validated_value
+
+        # Apply precedence for all options
+        self.effective_scope = {
+            s.strip()
+            for s in get_effective_value("nc_scope", "").split(",")
+            if s.strip()
+        }
+        self.max_concurrency = get_effective_value(
+            "nc_max_concurrency", DEFAULT_MAX_CONCURRENCY
+        )
+        self.user_agent = get_effective_value("nc_user_agent", DEFAULT_USER_AGENT)
+        self.payload_max_age = get_effective_value(
+            "nc_payload_max_age", DEFAULT_PAYLOAD_MAX_AGE
+        )
+        self.xss_stored_prefix = get_effective_value(
+            "nc_xss_stored_prefix", DEFAULT_XSS_STORED_PREFIX
+        )
+        self.xss_stored_format = get_effective_value(
+            "nc_xss_stored_format", DEFAULT_XSS_STORED_FORMAT
+        )
+        self.inspect_websocket = get_effective_value(
+            "nc_inspect_websocket", False
+        )  # Bool default is False
+
+        # Handle file paths separately for loading payloads / resolving output paths
+        sqli_payload_file_path = get_effective_value("nc_sqli_payload_file", "")
+        self.sqli_payloads = self._load_payloads_from_file(
+            sqli_payload_file_path, DEFAULT_SQLI_PAYLOADS, "SQLi"
+        )
+
+        xss_refl_payload_file_path = get_effective_value(
+            "nc_xss_reflected_payload_file", ""
+        )
+        self.xss_reflected_payloads = self._load_payloads_from_file(
+            xss_refl_payload_file_path, DEFAULT_XSS_REFLECTED_PAYLOADS, "Reflected XSS"
+        )
+
+        # Handle output file paths (resolve relative paths)
+        output_file_rel = get_effective_value("nc_output_file", "")
+        self.output_filepath = self._resolve_output_path(
+            output_file_rel, "findings JSONL"
+        )
+
+        output_html_rel = get_effective_value("nc_output_html", "")
+        self.html_report_filepath = self._resolve_output_path(
+            output_html_rel, "HTML report"
+        )
+
+        # Log final effective values
+        ctx.log.info(f"Effective Scope: {self.effective_scope or 'None (Idle)'}")
+        ctx.log.info(f"Effective Max Concurrency: {self.max_concurrency}")
+        # Log other important final values as needed
 
         # THIS MUST BE THE LAST LINE :-)
         self._configured_once = True
+
+    def _resolve_output_path(
+        self, path_option_value: str, file_type: str
+    ) -> Optional[pathlib.Path]:
+        """Resolves relative paths against default data dir, ensures writability."""
+        if not path_option_value:
+            # ctx.log.info(f"{file_type} output disabled.")
+            return None
+        try:
+            path = pathlib.Path(path_option_value)
+            # If path is not absolute, resolve it relative to the default data directory
+            if not path.is_absolute():
+                data_dir = _get_default_data_dir()
+                path = data_dir / path
+                ctx.log.debug(f"Resolved relative {file_type} path to: {path}")
+
+            # Ensure parent directory exists and check writability
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch(
+                exist_ok=True
+            )  # Create file or update timestamp, checks writability
+            ctx.log.info(f"{file_type} will be saved to: {path}")
+            return path
+        except Exception as e:
+            ctx.log.error(
+                f"Cannot use/write to specified path '{path_option_value}' for {file_type}: {e}. Disabled."
+            )
+            return None
 
     def _load_payloads_from_file(
         self, filepath: str, default_payloads: List[str], payload_type: str

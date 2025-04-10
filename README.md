@@ -1,12 +1,11 @@
 # nightcrawler-mitm
 
-Version: 0.5.0
+Version: 0.6.0
 
 A mitmproxy addon for background passive analysis, crawling, and basic active
 scanning, designed as a security researcher's sidekick.
 
-**WARNING: Alpha Stage - Use with caution, especially active scanning features
-**
+**WARNING: BETA Stage - Use with caution, especially active scanning features**
 
 ## FEATURES
 
@@ -32,16 +31,19 @@ scanning, designed as a security researcher's sidekick.
 You can install `nightcrawler-mitm` directly from PyPI using pip (once
 published):
 
-# pip install nightcrawler-mitm
+```
+pip install nightcrawler-mitm`
+```
 
 It's recommended to install it in a virtual environment. For development/local
 testing:
 
-# Navigate to project root directory (containing pyproject.toml)
+- Navigate to project root directory (containing pyproject.toml)
+- Activate your virtual environment (e.g., source .venv/bin/activate)
 
-# Activate your virtual environment (e.g., source .venv/bin/activate)
-
+```
 pip install -e .
+```
 
 ## USAGE
 
@@ -75,26 +77,82 @@ You can pass any other valid `mitmproxy` arguments (like `--ssl-insecure`, `-p`,
 4. Browse: Browse the target application(s). Findings appear in the terminal and
    optionally in the specified JSONL file.
 
-## CONFIGURATION VIA COMMAND LINE (--set)
+## CONFIGURATION
 
-Use mitmproxy's `--set name=value` syntax:
+Nightcrawler configuration follows this precedence:
 
-- `--set nc_scope=DOMAIN[,DOMAIN,...]` (Required): Target domain(s).
-- `--set nc_max_concurrency=INT` (Default: 5): Max concurrent background tasks.
-- `--set nc_user_agent=STRING` (Default: Nightcrawler-MITM/x.y.z): User-Agent
-  for worker requests.
-- `--set nc_payload_max_age=INT` (Default: 3600): Max age (seconds) for tracking
-  Stored XSS probes.
-- `--set nc_sqli_payload_file=FILEPATH` (Default: Uses built-in list): File with
-  SQLi payloads.
-- `--set nc_xss_reflected_payload_file=FILEPATH` (Default: Uses built-in list):
-  File with Reflected XSS payloads.
-- `--set nc_xss_stored_prefix=STRING` (Default: "ncXSS"): Prefix for unique
-  Stored XSS probe IDs.
-- `--set nc_xss_stored_format=STRING` (Default: ""): Format for Stored XSS
-  probe.
-- `--set nc_output_file=FILEPATH` (Default: "" - Disabled): Path to save
-  findings in JSONL format.
+1. Command-line --set options (highest precedence)
+2. Values in configuration file
+3. Built-in defaults (lowest precedence)
+
+**Configuration File:**
+
+- By default, Nightcrawler looks for a YAML configuration file at:
+  - `~/.config/nightcrawler-mitm/config.yaml` (on Linux/macOS, standard)
+  - `%APPDATA%/nightcrawler-mitm/config.yaml` (on Windows, needs check)
+  - _Fallback:_ `~/.nightcrawler-mitm/config.yaml` (if XDG path not
+    found/writable)
+- You can specify a different configuration file path using the `--nc-config`
+  option when running Nightcrawler (passed via `--set`):
+  `nightcrawler --set nc_config=/path/to/my_config.yaml ...`
+- The configuration file uses YAML format. Keys should match the addon option
+  names (without the `--set`).
+
+_Example `config.yaml`:_
+
+```yaml
+# ~/.config/nightcrawler-mitm/config.yaml
+# Nightcrawler Configuration Example
+
+# Target scope (REQUIRED if not using --set nc_scope)
+nc_scope: example.com,internal.dev
+
+# Worker concurrency
+nc_max_concurrency: 10
+
+# Custom User-Agent
+nc_user_agent: "My Custom Scanner Bot/1.0"
+
+# Custom payload files (paths relative to config file or absolute)
+# nc_sqli_payload_file: payloads/custom_sqli.txt
+# nc_xss_reflected_payload_file: /opt/payloads/xss.txt
+
+# Stored XSS settings
+nc_xss_stored_prefix: MyProbe
+nc_xss_stored_format: "<nc_probe data='{probe_id}'/>"
+nc_payload_max_age: 7200 # Track payloads for 2 hours
+
+# Output files (relative paths resolved against default data dir, absolute paths used as is)
+# nc_output_file: nightcrawler_results.jsonl # Saved in default data dir
+# nc_output_html: /var/www/reports/scan_report.html # Saved to absolute path
+
+# WebSocket inspection
+nc_inspect_websocket: false
+```
+
+### Command-Line Overrides (--set)
+
+You can always override defaults or config file values using --set. This takes
+the highest precedence.
+
+```
+nightcrawler --set nc_scope=specific-target.com --set nc_max_concurrency=3
+```
+
+To see all available nc*options and their current effective values (after
+considering defaults, config file, and --set), run: nightcrawler --options |
+grep nc*
+
+### Default Data Directory & Output Paths
+
+- If you specify relative paths for nc_output_file or nc_output_html (either in
+  the config file or via --set), Nightcrawler will attempt to save them relative
+  to a default data directory:
+  - Linux/macOS (XDG): ~/.local/share/nightcrawler-mitm/
+  - Windows (approx): %LOCALAPPDATA%/nightcrawler-mitm/
+- If you specify absolute paths (e.g., /tmp/report.html), they will be used
+  directly.
+- Nightcrawler will attempt to create these directories if they don't exist.
 
 ## LIMITATIONS
 
@@ -115,3 +173,7 @@ details.
 
 Contributions welcome! See the GitHub repository:
 <https://github.com/thesp0nge/nightcrawler-mitm>
+
+```
+
+```
