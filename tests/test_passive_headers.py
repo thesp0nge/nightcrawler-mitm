@@ -2,6 +2,7 @@
 # Unit tests for the passive header scanning logic.
 
 import pytest
+import re
 from mitmproxy import http  # Needed to create Headers object
 from unittest.mock import MagicMock  # For mocking addon instance
 
@@ -251,6 +252,117 @@ def test_secure_headers_present(mock_addon, sample_url):
             != "Passive Scan - Incorrect X-Content-Type-Options"
         )
         # Could add more specific negative assertions if needed
+
+
+def test_csp_unsafe_inline_script(mock_addon, sample_url):
+    """Test: CSP allows unsafe-inline for scripts."""
+    headers = http.Headers(
+        Content_Security_Policy="default-src 'self'; script-src 'self' 'unsafe-inline'"
+    )
+    check_security_headers(headers, sample_url, mock_addon)
+    mock_addon._log_finding.assert_any_call(
+        level="WARN",
+        finding_type="Passive Scan - Weak CSP ('unsafe-inline')",
+        url=sample_url,
+        detail="Potential weak directives/sources found in CSP: 'unsafe-inline'",  # Check basic detail
+        evidence=pytest.approx(dict),
+    )
+
+
+def test_csp_wildcard_source(mock_addon, sample_url):
+    """Test: CSP allows wildcard * for default-src."""
+    headers = http.Headers(Content_Security_Policy="default-src *; object-src 'none'")
+    check_security_headers(headers, sample_url, mock_addon)
+    mock_addon._log_finding.assert_any_call(
+        level="WARN",
+        finding_type="Passive Scan - Weak CSP (Wildcard Source)",
+        url=sample_url,
+        detail="Potential weak directives/sources found in CSP: Wildcard (*) source in script-src/default-src",
+        evidence=pytest.approx(dict),
+    )
+
+
+def test_csp_missing_base_uri(mock_addon, sample_url):
+    """Test: CSP is present but missing base-uri directive."""
+    headers = http.Headers(Content_Security_Policy="default-src 'self'")
+    check_security_headers(headers, sample_url, mock_addon)
+    mock_addon._log_finding.assert_any_call(
+        level="WARN",
+        finding_type="Passive Scan - Weak CSP (Missing base-uri)",
+        url=sample_url,
+        detail="Potential weak directives/sources found in CSP: Missing base-uri",
+        evidence=pytest.approx(dict),
+    )
+
+
+def test_info_disclosure_server_detailed(mock_addon, sample_url):
+    """Test: Server header discloses specific version."""
+    headers = http.Headers(Server="SomeWebServer/1.2.3 (Debian)")
+    check_security_headers(headers, sample_url, mock_addon)
+    mock_addon._log_finding.assert_any_call(
+        level="WARN",
+        finding_type="Passive Scan - Info Disclosure (Server)",
+        url=sample_url,
+        detail="Potentially verbose/identifying info disclosed in 'Server' header: SomeWebServer/1.2.3 (Debian)",
+        evidence={"header": "Server: SomeWebServer/1.2.3 (Debian)"},
+    )
+
+
+def test_info_disclosure_server_generic(mock_addon, sample_url):
+    """Test: Server header is generic, should be INFO."""
+    headers = http.Headers(Server="nginx")
+    check_security_headers(headers, sample_url, mock_addon)
+    # Check specifically that the WARN level for verbose header was NOT called for 'Server'
+    found_info = False
+    for call in mock_addon._log_finding.call_args_list:
+        if call.kwargs.get("finding_type") == "Passive Scan - Info Disclosure (Server)":
+            assert call.kwargs.get("level") == "INFO"  # Expect INFO for generic server
+            found_info = True
+            break
+    assert found_info, "Expected INFO log for generic Server header not found"
+
+
+def test_caching_public_json(mock_addon, sample_url):
+    """Test: Cache-Control: public on application/json."""
+    headers = http.Headers(
+        Cache_Control="public, max-age=86400", Content_Type="application/json"
+    )
+    check_security_headers(headers, sample_url, mock_addon)
+    mock_addon._log_finding.assert_any_call(
+        level="WARN",
+        finding_type="Passive Scan - Potential Sensitive Data Caching",
+        url=sample_url,
+        detail="'Cache-Control: public' found on potentially sensitive content type 'application/json'.",
+        evidence=pytest.approx(dict),
+    )
+
+
+def test_caching_no_store_missing_json(mock_addon, sample_url):
+    """Test: Caching not explicitly disabled on JSON (INFO level)."""
+    headers = http.Headers(
+        Content_Type="application/json", Cache_Control="max-age=60"
+    )  # No no-store/no-cache
+    check_security_headers(headers, sample_url, mock_addon)
+    mock_addon._log_finding.assert_any_call(
+        level="INFO",
+        finding_type="Passive Scan - Caching Not Explicitly Disabled?",
+        url=sample_url,
+        detail="Caching not explicitly disabled (no-cache/no-store) on potentially sensitive content type 'application/json'. Review caching policy.",
+        evidence=pytest.approx(dict),
+    )
+
+
+def test_cors_wildcard(mock_addon, sample_url):
+    """Test: ACAO is wildcard (*)."""
+    headers = http.Headers(Access_Control_Allow_Origin="*")
+    check_security_headers(headers, sample_url, mock_addon)
+    mock_addon._log_finding.assert_any_call(
+        level="WARN",
+        finding_type="Passive Scan - Permissive CORS (Wildcard)",
+        url=sample_url,
+        detail="Access-Control-Allow-Origin is wildcard (*), allowing read access from any origin.",
+        evidence={"ACAO": "*", "ACAC": None},
+    )
 
 
 # End of tests/test_passive_headers.py
