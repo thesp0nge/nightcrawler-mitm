@@ -259,36 +259,25 @@ def _check_info_disclosure_headers(
     headers: http.Headers, url: str, addon_instance: "MainAddon"
 ):
     """Checks for headers that might disclose backend technology/versions."""
-    for header_name in INFO_DISCLOSURE_HEADERS:
+    for header_name in (
+        INFO_DISCLOSURE_HEADERS
+    ):  # INFO_DISCLOSURE_HEADERS should be defined at module level
         value = headers.get(header_name)
         if value:
-            log_level = "INFO"
+            log_level = "INFO"  # Default to INFO
+            # --- CORRECTED DETAIL STRING LOGIC ---
             detail = f"Header '{header_name}' present, value: {value[:100]}"
-            is_verbose = False
-            try:  # Check for verbose patterns safely
-                if header_name == "Server":
-                    server_name_lower = (
-                        value.split("/")[0].split("(")[0].strip().lower()
-                    )
-                    is_verbose = bool(
-                        server_name_lower not in GENERIC_SERVER_VALUES
-                        and server_name_lower != ""
-                        or ("/" in value or "(" in value)
-                    )
-                elif header_name == "X-Powered-By" or header_name == "X-AspNet-Version":
-                    is_verbose = True
-            except Exception as e:  # Catch potential errors in string splitting etc.
-                try:
-                    ctx.log.debug(
-                        f"Error checking verbosity for header {header_name}: {e}"
-                    )
-                except AttributeError:
-                    pass
-
-            if is_verbose:
+            # Raise severity if it looks like a specific version is disclosed
+            if header_name == "Server" and value.lower() not in GENERIC_SERVER_VALUES:
                 log_level = "WARN"
-                detail = f"Potentially verbose info in '{header_name}': {value[:100]}"
-            # Use addon_instance._log_finding for the finding
+                detail = f"Potentially specific version disclosed in '{header_name}' header: {value[:100]}"
+            elif header_name == "X-Powered-By":
+                log_level = "WARN"  # This is generally unnecessary information
+                detail = f"Potentially unnecessary info disclosed in '{header_name}': {value[:100]}"
+            elif header_name == "Via":
+                detail = f"Proxy detected via '{header_name}' header: {value[:100]}"
+            # --- END CORRECTION ---
+
             addon_instance._log_finding(
                 level=log_level,
                 finding_type=f"Passive Scan - Info Disclosure ({header_name})",

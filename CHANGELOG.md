@@ -20,6 +20,56 @@ and this project adheres to
 
 - _Future fixes go here_
 
+## [0.6.0] - 2025-06-23
+
+### Added
+
+- **Configuration File Support:**
+  - Nightcrawler now supports a dedicated YAML configuration file (default:
+    `~/.config/nightcrawler-mitm/config.yaml`).
+  - Implemented configuration precedence: Command-line `--set` options > Config
+    file > Built-in defaults.
+  - Added `--set nc_config=/path/to/file.yaml` to specify a custom config file.
+- **Content Discovery Scanner:**
+  - Added a new active scanner module (`active_scans/discovery.py`) to probe for
+    hidden files and directories from a wordlist.
+  - Includes a built-in default wordlist and supports custom lists via
+    `--set nc_discovery_wordlist=...`.
+  - Integrated a new asynchronous worker (`_discovery_worker`) to manage
+    discovery scans.
+- **Testing:**
+  - Added a dedicated test suite for the new content discovery scanner
+    (`tests/test_active_discovery.py`).
+  - Created a central `tests/conftest.py` to provide shared fixtures to all test
+    modules.
+- **Dependencies:**
+  - Added `PyYAML` for parsing the configuration file.
+  - Added `respx` for robust HTTP request mocking in tests.
+
+### Changed
+
+- **Major Test Suite Overhaul:** Refactored the entire test suite for stability
+  and correctness.
+  - Replaced the `pytest-httpx` library with `respx` for all mocking.
+  - Decoupled all active scanner functions from `mitmproxy.ctx` by passing a
+    dedicated logger object.
+- `addon.py` was significantly refactored to handle the new configuration logic
+  and discovery worker.
+- Output file paths with relative paths are now resolved against a default data
+  directory (e.g., `~/.local/share/nightcrawler-mitm`).
+
+### Fixed
+
+- **All test failures:** Resolved all outstanding `pytest` errors, including
+  persistent `AssertionError`s, `AttributeError: ctx.log`, `NameError`, and
+  `fixture not found` errors, resulting in a fully passing test suite.
+- Removed the deprecated `cookies=` argument from all `httpx` calls in scanners,
+  fixing `DeprecationWarning`s.
+
+### Removed
+
+- Removed the `pytest-httpx` library from testing dependencies.
+
 ## [0.5.0] - 2025-04-09
 
 ### Added
