@@ -20,6 +20,40 @@ and this project adheres to
 
 - _Future fixes go here_
 
+## [0.7.0] - 2025-06-23
+
+### Added
+
+- **JavaScript Library Scanner:** Added a new passive scanner module
+  (`passive_scans/javascript.py`) to identify common JavaScript libraries (e.g.,
+  jQuery, React, Vue, Bootstrap) and their versions from the `src` attribute of
+  `<script>` tags.
+- **Testing:** Added a dedicated test suite (`tests/test_passive_javascript.py`)
+  to verify the new JS library scanner's logic.
+
+### Changed
+
+- **Finalized Test Suite Overhaul:** Completed the migration of all HTTP mocking
+  tests (including `test_xss_scanner.py` and `test_active_discovery.py`) from
+  the problematic `pytest-httpx` to the more direct and stable `respx` library.
+- **Centralized Test Fixtures:** All shared `pytest` fixtures (`mock_addon`,
+  `target_info_*`, `sample_url`) have been moved into a single
+  `tests/conftest.py` file to be automatically available to all test modules,
+  resolving all `fixture not found` errors.
+
+### Fixed
+
+- **All Test Failures:** Resolved all outstanding `pytest` errors and failures,
+  achieving a fully passing ("green") test suite. This includes:
+  - Fixed persistent `AssertionError` failures in active scanner tests by
+    correcting the `respx` mocking strategy to match the way the scanner code
+    makes requests.
+  - Fixed assertion mismatches in `test_passive_headers.py` by aligning test
+    expectations with the scanner's actual output.
+  - Fixed all `NameError` and `AttributeError` exceptions that were occurring
+    only within the `pytest` environment by decoupling scanner functions from
+    the `mitmproxy.ctx` object.
+
 ## [0.6.0] - 2025-06-23
 
 ### Added
@@ -265,5 +299,10 @@ and this project adheres to
   runner.
 
 [Unreleased]:
-  https://github.com/thesp0nge/nightcrawler-mitm/compare/v0.3.0...HEAD
+  https://github.com/thesp0nge/nightcrawler-mitm/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/thesp0nge/nightcrawler-mitm/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/thesp0nge/nightcrawler-mitm/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/thesp0nge/nightcrawler-mitm/compare/v0.4.0...v0.5.0
 [0.3.0]: https://github.com/thesp0nge/nightcrawler-mitm/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/thesp0nge/nightcrawler-mitm/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/thesp0nge/nightcrawler-mitm/releases/tag/v0.1.0

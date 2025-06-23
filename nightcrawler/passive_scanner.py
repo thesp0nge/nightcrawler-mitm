@@ -69,6 +69,18 @@ except ImportError as e:
         pass  # Dummy function
 
 
+try:
+    from nightcrawler.passive_scans.javascript import check_javascript_libraries
+
+    PASSIVE_CHECKS_AVAILABLE["javascript"] = True
+except ImportError as e:
+    logging.error(f"Could not import javascript passive scan module: {e}")
+    PASSIVE_CHECKS_AVAILABLE["javascript"] = False
+
+    def check_javascript_libraries(*args, **kwargs):
+        pass
+
+
 # Type hint for MainAddon
 if TYPE_CHECKING:
     from nightcrawler.addon import MainAddon
@@ -132,6 +144,13 @@ def run_all_passive_checks(flow: http.HTTPFlow, addon_instance: "MainAddon"):
                 check_response_for_jwt(flow.response, url, addon_instance)
             except Exception as e:
                 ctx.log.error(f"Error during check_response_for_jwt for {url}: {e}")
+
+        if PASSIVE_CHECKS_AVAILABLE.get("javascript"):
+            try:
+                # This check parses HTML, so it's only relevant for HTML responses
+                check_javascript_libraries(flow.response, url, addon_instance, ctx.log)
+            except Exception as e:
+                ctx.log.error(f"Error during check_javascript_libraries for {url}: {e}")
 
         # Add calls to other response check functions/modules here...
 
