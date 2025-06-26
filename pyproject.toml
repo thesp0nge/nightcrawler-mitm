@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nightcrawler-mitm"
-# The version is now dynamic and will be read from the source code
-dynamic = ["version"]
-description = "A mitmproxy addon for background passive analysis, crawling, and active scanning, co-developed with AI."
-readme = "README.txt"
+# The version is now hardcoded again for stability
+version = "0.9.0"
+description = "A mitmproxy addon for background passive analysis, crawling, and basic active scanning, designed as a security researcher's sidekick."
+readme = "README.md"
 requires-python = ">=3.9"
 authors = [ { name = "thesp0nge", email = "your.email@example.com" }, ]
 license = { file = "LICENSE" }
@@ -37,10 +37,7 @@ dependencies = [
 [project.scripts]
 nightcrawler = "nightcrawler.runner:main"
 
-# --- ADDED: This tells setuptools where to find the dynamic version ---
-[tool.setuptools.dynamic]
-version = {attr = "nightcrawler.__version__"}
-# --------------------------------------------------------------------
+# The [tool.setuptools.dynamic] section has been completely removed.
 
 [tool.pytest.ini_options]
-asyncio_mode = auto
+asyncio_mode = "auto"
