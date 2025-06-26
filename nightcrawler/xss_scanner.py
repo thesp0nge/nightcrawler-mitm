@@ -1,4 +1,6 @@
 # nightcrawler/xss_scanner.py
+# Contains logic for basic Reflected XSS scanning and Stored XSS injection.
+
 import httpx
 import time
 import random
@@ -18,10 +20,7 @@ async def scan_xss_reflected_basic(
     addon_instance: "MainAddon",
     logger: Any,
 ):
-    """
-    Attempts basic reflected XSS payloads, logging ERROR for exact reflection
-    and INFO for HTML-escaped reflection.
-    """
+    """Attempts basic reflected XSS payloads, logging findings via addon_instance."""
     url, method = target_info["url"], target_info["method"].upper()
     original_params, original_data = target_info["params"], target_info["data"]
     original_headers = target_info["headers"]
@@ -30,7 +29,6 @@ async def scan_xss_reflected_basic(
     if not params_to_fuzz or not payloads:
         return
 
-    logger.debug(f"[XSS Reflected Scan] Starting for {url}")
     for param_name in params_to_fuzz:
         exact_finding_logged = False
         escaped_finding_logged = False
@@ -39,15 +37,28 @@ async def scan_xss_reflected_basic(
                 break
 
             current_params, current_data = original_params.copy(), original_data.copy()
-            is_in_query = param_name in original_params
-            if is_in_query:
+            is_param_in_query = param_name in current_params
+
+            # --- CORRECTED LOGIC: Handle list values ---
+            value = (
+                current_params[param_name]
+                if is_param_in_query
+                else current_data[param_name]
+            )
+            original_value = value[0] if isinstance(value, list) else value
+            original_value = original_value if original_value is not None else ""
+            # --- END CORRECTION ---
+
+            # For reflected XSS, we replace the value entirely, not append
+            if is_param_in_query:
                 current_params[param_name] = payload
             else:
                 current_data[param_name] = payload
 
-            payload_detail = f"Param: {param_name}, Payload Snippet: {payload[:50]}..."
-            payload_evidence = {"param": param_name, "payload": payload[:100]}
-
+            payload_info_detail = (
+                f"Param: {param_name}, Payload Snippet: {payload[:50]}..."
+            )
+            payload_info_evidence = {"param": param_name, "payload": payload[:100]}
             request_headers = {
                 k: v
                 for k, v in original_headers.items()
@@ -61,9 +72,9 @@ async def scan_xss_reflected_basic(
             try:
                 response = await http_client.request(
                     method,
-                    url.split("?")[0] if is_in_query else url,
-                    params=current_params if is_in_query else original_params,
-                    data=current_data if not is_in_query else original_data,
+                    url.split("?")[0] if is_param_in_query else url,
+                    params=current_params,
+                    data=current_data,
                     headers=request_headers,
                 )
                 if "html" in response.headers.get("Content-Type", "") and response.text:
@@ -73,8 +84,8 @@ async def scan_xss_reflected_basic(
                                 "ERROR",
                                 "XSS Found? (Reflected - Exact)",
                                 url,
-                                payload_detail,
-                                payload_evidence,
+                                payload_info_detail,
+                                payload_info_evidence,
                             )
                             exact_finding_logged = True
                             break
@@ -88,12 +99,14 @@ async def scan_xss_reflected_basic(
                                 "INFO",
                                 "Passive Scan - Escaped Reflection Found",
                                 url,
-                                f"Input reflected but HTML-escaped. {payload_detail}",
-                                payload_evidence,
+                                f"Input reflected but HTML-escaped. {payload_info_detail}",
+                                payload_info_evidence,
                             )
                             escaped_finding_logged = True
             except Exception as e:
-                logger.debug(f"[XSS Reflected Scan] Exception: {e} ({payload_detail})")
+                logger.debug(
+                    f"[XSS Reflected Scan] Exception: {e} ({payload_info_detail})"
+                )
 
 
 async def scan_xss_stored_inject(
@@ -114,24 +127,27 @@ async def scan_xss_stored_inject(
     if not params_to_fuzz:
         return
     if "{probe_id}" not in payload_format:
-        logger.error(
-            f"[XSS Stored Inject] Invalid format string '{payload_format}'. Skipping."
-        )
+        logger.error(f"Invalid format string '{payload_format}'. Skipping.")
         return
 
-    logger.debug(f"[XSS Stored Inject] Starting attempts for {url}")
     for param_name in params_to_fuzz:
         probe_id = f"{probe_prefix}_{int(time.time())}_{random.randint(1000,9999)}_{param_name}"
         unique_payload = payload_format.format(probe_id=probe_id)
         current_params, current_data = original_params.copy(), original_data.copy()
-        is_in_query = param_name in original_params
-        original_value = (
-            current_params.get(param_name, "")
-            if is_in_query
-            else original_data.get(param_name, "")
+        is_param_in_query = param_name in current_params
+
+        # --- CORRECTED LOGIC: Handle list values ---
+        value = (
+            current_params[param_name]
+            if is_param_in_query
+            else current_data[param_name]
         )
+        original_value = value[0] if isinstance(value, list) else value
+        original_value = original_value if original_value is not None else ""
+        # --- END CORRECTION ---
+
         injected_value = original_value + unique_payload
-        if is_in_query:
+        if is_param_in_query:
             current_params[param_name] = injected_value
         else:
             current_data[param_name] = injected_value
@@ -149,9 +165,9 @@ async def scan_xss_stored_inject(
         try:
             await http_client.request(
                 method,
-                url.split("?")[0] if is_in_query else url,
-                params=current_params if is_in_query else original_params,
-                data=current_data if not is_in_query else original_data,
+                url.split("?")[0] if is_param_in_query else url,
+                params=current_params,
+                data=current_data,
                 headers=request_headers,
             )
             injection_details = {

@@ -20,6 +20,24 @@ and this project adheres to
 
 - _Future fixes go here_
 
+## [0.9.0] - 2025-06-26
+
+### Changed
+
+- **Major Refactor (Build System):** Overhauled the versioning system to use a
+  "single source of truth."
+  - The package version is now defined only once in `nightcrawler/__init__.py`.
+  - `pyproject.toml` has been updated to read this version dynamically during
+    the build process (`dynamic = ["version"]`).
+  - This change significantly simplifies the release workflow and prevents
+    version number inconsistencies between the package metadata and the running
+    application.
+
+### Fixed
+
+- All previously identified test failures have been resolved, resulting in a
+  stable test suite.
+
 ## [0.8.0] - 2025-06-26
 
 ### Added
@@ -337,7 +355,8 @@ and this project adheres to
   runner.
 
 [Unreleased]:
-  https://github.com/thesp0nge/nightcrawler-mitm/compare/v0.8.0...HEAD
+  https://github.com/thesp0nge/nightcrawler-mitm/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/thesp0nge/nightcrawler-mitm/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/thesp0nge/nightcrawler-mitm/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/thesp0nge/nightcrawler-mitm/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/thesp0nge/nightcrawler-mitm/compare/v0.5.0...v0.6.0

@@ -15,7 +15,7 @@ async def scan_sqli_basic(
     http_client: httpx.AsyncClient,
     payloads: List[str],
     addon_instance: "MainAddon",
-    logger: Any,  # Accept a logger object
+    logger: Any,
 ):
     """Attempts basic SQLi payloads, logging findings via addon_instance."""
     url, method = target_info["url"], target_info["method"].upper()
@@ -30,16 +30,22 @@ async def scan_sqli_basic(
 
     for param_name in params_to_fuzz:
         for payload in payloads:
-            # --- DEFINE VARIABLES BEFORE TRY BLOCK ---
             current_params = original_params.copy()
             current_data = original_data.copy()
-            is_param_in_query = param_name in original_params
-            original_value = (
-                current_params.get(param_name)
-                if is_param_in_query
-                else original_data.get(param_name, "")
-            )
+            is_param_in_query = param_name in current_params
 
+            # --- CORRECTED LOGIC: Handle list values from parse_qs ---
+            value = (
+                current_params[param_name]
+                if is_param_in_query
+                else current_data[param_name]
+            )
+            # If the value is a list (from parse_qs), take the first element.
+            original_value = value[0] if isinstance(value, list) else value
+            original_value = original_value if original_value is not None else ""
+            # --- END CORRECTION ---
+
+            # Now, original_value is guaranteed to be a string
             if is_param_in_query:
                 current_params[param_name] = original_value + payload
             else:
@@ -64,7 +70,6 @@ async def scan_sqli_basic(
                 request_headers["Cookie"] = "; ".join(
                     [f"{k}={v}" for k, v in cookies.items()]
                 )
-            # --- END VARIABLE DEFINITION ---
 
             try:
                 start_time = time.time()
@@ -77,25 +82,15 @@ async def scan_sqli_basic(
                 )
                 duration = time.time() - start_time
 
-                # --- SQLi Response Analysis ---
                 error_patterns = [
                     "sql syntax",
                     "unclosed quotation",
                     "odbc",
                     "ora-",
                     "invalid sql",
-                    "syntax error",
-                    "you have an error in your sql",
                 ]
-                response_text_lower = ""
-                try:
-                    response_text_lower = response.text.lower()
-                except Exception:
-                    pass
-
-                if response_text_lower and any(
-                    pattern in response_text_lower for pattern in error_patterns
-                ):
+                response_text_lower = response.text.lower() if response.text else ""
+                if any(pattern in response_text_lower for pattern in error_patterns):
                     addon_instance._log_finding(
                         level="ERROR",
                         finding_type="SQLi Found? (Error-Based)",
@@ -111,16 +106,5 @@ async def scan_sqli_basic(
                         detail=f"{payload_info_detail}, Duration: {duration:.2f}s",
                         evidence=payload_info_evidence,
                     )
-
-            except httpx.TimeoutException:
-                addon_instance._log_finding(
-                    level="WARN",
-                    finding_type="SQLi Scan Timeout",
-                    url=url,
-                    detail=f"Timeout sending payload. {payload_info_detail}",
-                    evidence=payload_info_evidence,
-                )
             except Exception as e:
-                logger.debug(
-                    f"[SQLi Scan] Exception during payload send/recv: {e} ({payload_info_detail})"
-                )
+                logger.debug(f"[SQLi Scan] Exception: {e} ({payload_info_detail})")

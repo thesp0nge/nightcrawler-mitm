@@ -3,20 +3,14 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-# --- Core Metadata ---
 name = "nightcrawler-mitm"
-version = "0.8.0" 
-description = "A mitmproxy addon for background passive analysis, crawling, and basic active scanning."
-readme = "README.md"
+# The version is now dynamic and will be read from the source code
+dynamic = ["version"]
+description = "A mitmproxy addon for background passive analysis, crawling, and active scanning, co-developed with AI."
+readme = "README.txt"
 requires-python = ">=3.9"
-
-# --- Author & License ---
-authors = [
-    { name = "Paolo Perego", email = "paolo@codiceinsicuro.it" },
-]
-license = { file = "LICENSE" } 
-
-# --- PyPI Classifiers ---
+authors = [ { name = "thesp0nge", email = "your.email@example.com" }, ]
+license = { file = "LICENSE" }
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
@@ -24,34 +18,29 @@ classifiers = [
     "Intended Audience :: Information Technology",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Internet :: Proxy Servers",
     "Topic :: Security",
-    "Topic :: Software Development :: Testing",
 ]
-
-# --- Keywords ---
 keywords = ["mitmproxy", "security", "scanner", "proxy", "pentest", "xss", "sqli", "crawler", "addon"]
-
-# --- Dependencies ---
 dependencies = [
     "mitmproxy>=10.0.0",
     "httpx>=0.25.0",
     "beautifulsoup4>=4.10.0",
     "PyYAML>=6.0",
 ]
-
-# --- Project URLs (Optional but recommended) ---
 [project.urls]
 "Homepage" = "https://github.com/thesp0nge/nightcrawler-mitm"
 "Repository" = "https://github.com/thesp0nge/nightcrawler-mitm"
 "Bug Tracker" = "https://github.com/thesp0nge/nightcrawler-mitm/issues"
-
-# --- Console Script Entry Point ---
-# Defines the 'nightcrawler' command available after installation
 [project.scripts]
 nightcrawler = "nightcrawler.runner:main"
+
+# --- ADDED: This tells setuptools where to find the dynamic version ---
+[tool.setuptools.dynamic]
+version = {attr = "nightcrawler.__version__"}
+# --------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+asyncio_mode = auto
