@@ -18,10 +18,8 @@ async def scan_sqli_basic(
     logger: Any,  # Accept a logger object
 ):
     """Attempts basic SQLi payloads, logging findings via addon_instance."""
-    url = target_info["url"]
-    method = target_info["method"].upper()
-    original_params = target_info["params"]
-    original_data = target_info["data"]
+    url, method = target_info["url"], target_info["method"].upper()
+    original_params, original_data = target_info["params"], target_info["data"]
     original_headers = target_info["headers"]
     params_to_fuzz = list(original_params.keys()) + list(original_data.keys())
 
@@ -32,11 +30,24 @@ async def scan_sqli_basic(
 
     for param_name in params_to_fuzz:
         for payload in payloads:
-            # ... (logic to inject payload into current_params/current_data) ...
+            # --- DEFINE VARIABLES BEFORE TRY BLOCK ---
+            current_params = original_params.copy()
+            current_data = original_data.copy()
+            is_param_in_query = param_name in original_params
+            original_value = (
+                current_params.get(param_name)
+                if is_param_in_query
+                else original_data.get(param_name, "")
+            )
+
+            if is_param_in_query:
+                current_params[param_name] = original_value + payload
+            else:
+                current_data[param_name] = original_value + payload
+
             payload_info_detail = f"Param: {param_name}, Payload: {payload}"
             payload_info_evidence = {"param": param_name, "payload": payload}
 
-            # Prepare Filtered Headers + Cookie Header
             request_headers = {
                 k: v
                 for k, v in original_headers.items()
@@ -49,34 +60,57 @@ async def scan_sqli_basic(
                     "cookie",
                 ]
             }
-            if method == "POST" and "content-type" not in request_headers:
-                original_content_type = original_headers.get("content-type")
-                if (
-                    original_content_type
-                    and "urlencoded" in original_content_type.lower()
-                ):
-                    request_headers["content-type"] = original_content_type
             if cookies:
                 request_headers["Cookie"] = "; ".join(
                     [f"{k}={v}" for k, v in cookies.items()]
                 )
+            # --- END VARIABLE DEFINITION ---
 
             try:
                 start_time = time.time()
                 response = await http_client.request(
                     method,
-                    url.split("?")[0] if param_name in original_params else url,
-                    params=current_params
-                    if param_name in original_params
-                    else original_params,
-                    data=current_data if param_name in original_data else original_data,
+                    url.split("?")[0] if is_param_in_query else url,
+                    params=current_params,
+                    data=current_data,
                     headers=request_headers,
-                    # No cookies= argument
                 )
                 duration = time.time() - start_time
 
-                # ... (response analysis logic for error-based and time-based SQLi) ...
-                # ... (call addon_instance._log_finding on hits) ...
+                # --- SQLi Response Analysis ---
+                error_patterns = [
+                    "sql syntax",
+                    "unclosed quotation",
+                    "odbc",
+                    "ora-",
+                    "invalid sql",
+                    "syntax error",
+                    "you have an error in your sql",
+                ]
+                response_text_lower = ""
+                try:
+                    response_text_lower = response.text.lower()
+                except Exception:
+                    pass
+
+                if response_text_lower and any(
+                    pattern in response_text_lower for pattern in error_patterns
+                ):
+                    addon_instance._log_finding(
+                        level="ERROR",
+                        finding_type="SQLi Found? (Error-Based)",
+                        url=url,
+                        detail=payload_info_detail,
+                        evidence=payload_info_evidence,
+                    )
+                if "SLEEP" in payload.upper() and duration > 4.5:
+                    addon_instance._log_finding(
+                        level="ERROR",
+                        finding_type="SQLi Found? (Time-Based)",
+                        url=url,
+                        detail=f"{payload_info_detail}, Duration: {duration:.2f}s",
+                        evidence=payload_info_evidence,
+                    )
 
             except httpx.TimeoutException:
                 addon_instance._log_finding(
@@ -90,6 +124,3 @@ async def scan_sqli_basic(
                 logger.debug(
                     f"[SQLi Scan] Exception during payload send/recv: {e} ({payload_info_detail})"
                 )
-
-
-# End of nightcrawler/sqli_scanner.py

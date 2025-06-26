@@ -20,6 +20,44 @@ and this project adheres to
 
 - _Future fixes go here_
 
+## [0.8.0] - 2025-06-26
+
+### Added
+
+- **Enhanced Passive Scanning:**
+  - Added a new passive scanner module (`passive_scans/javascript.py`) to
+    identify common JavaScript libraries and their versions.
+  - Enhanced the JWT scanner (`passive_scans/jwt.py`) to validate `exp`
+    (expiration) and `nbf` (not before) claims, and to flag insecure `alg:none`
+    as an error.
+  - Enhanced the header scanner (`passive_scans/headers.py`) to check for a
+    wider range of security headers (Permissions-Policy, COOP/COEP/CORP), weak
+    HSTS configurations, and basic CSP weaknesses.
+- **Testing:**
+  - Added a dedicated test suite (`tests/test_passive_javascript.py` and
+    `tests/test_passive_csp.py`) for the new passive scanning logic.
+
+### Changed
+
+- **Major Test Suite Overhaul:** Completed the migration of all HTTP mocking
+  tests from `pytest-httpx` to the more direct and stable `respx` library. This
+  provides more reliable and predictable test execution.
+- **Decoupled Scanner Logic:** All active and passive scanner functions are now
+  fully decoupled from `mitmproxy.ctx` and accept a logger object as a
+  parameter, making them properly unit-testable.
+
+### Fixed
+
+- **All Test Failures:** Resolved all outstanding `pytest` errors and failures,
+  achieving a fully passing ("green") test suite. This includes fixing
+  `fixture not found`, `AssertionError`, `NameError`, and `AttributeError`
+  exceptions that were occurring during test setup and execution.
+- Corrected numerous specific test assertions to align with the refactored
+  code's actual output.
+- Fixed a `NameError` in `active_scans/traversal.py` caused by a missing import.
+- Fixed `TypeError` in `passive_scans/headers.py` and `cookies.py` by aligning
+  function signatures to accept the `logger` argument.
+
 ## [0.7.0] - 2025-06-23
 
 ### Added
@@ -299,7 +337,8 @@ and this project adheres to
   runner.
 
 [Unreleased]:
-  https://github.com/thesp0nge/nightcrawler-mitm/compare/v0.7.0...HEAD
+  https://github.com/thesp0nge/nightcrawler-mitm/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/thesp0nge/nightcrawler-mitm/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/thesp0nge/nightcrawler-mitm/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/thesp0nge/nightcrawler-mitm/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/thesp0nge/nightcrawler-mitm/compare/v0.4.0...v0.5.0
