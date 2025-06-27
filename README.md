@@ -1,6 +1,8 @@
 # nightcrawler-mitm
 
-Version: 0.6.0
+![alt text](https://github.com/thesp0nge/nightcrawler-mitm/blob/main/logo_transparent.png?raw=true)
+
+Version: 0.9.0
 
 A mitmproxy addon for background passive analysis, crawling, and basic active
 scanning, designed as a security researcher's sidekick.
@@ -31,7 +33,7 @@ scanning, designed as a security researcher's sidekick.
 You can install `nightcrawler-mitm` directly from PyPI using pip (once
 published):
 
-```
+```sh
 pip install nightcrawler-mitm`
 ```
 
@@ -41,7 +43,7 @@ testing:
 - Navigate to project root directory (containing pyproject.toml)
 - Activate your virtual environment (e.g., source .venv/bin/activate)
 
-```
+```sh
 pip install -e .
 ```
 
