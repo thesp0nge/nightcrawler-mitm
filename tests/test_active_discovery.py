@@ -1,103 +1,99 @@
-# tests/test_active_traversal.py
-# Unit tests for the Directory Traversal scanner logic.
+# tests/test_active_discovery.py
+# Unit tests for the Content Discovery active scanner.
 
 import pytest
 import httpx
 import respx
-import re
-from mitmproxy import http
 from unittest.mock import MagicMock
 
 try:
-    from nightcrawler.active_scans.traversal import scan_directory_traversal
+    from nightcrawler.active_scans.discovery import scan_content_discovery
+    from nightcrawler.addon import MainAddon
 except ImportError:
-    pytest.fail("Could not import scan_directory_traversal", pytrace=False)
+    pytest.fail("Could not import scan_content_discovery or MainAddon", pytrace=False)
 
 pytestmark = pytest.mark.asyncio
 
 # --- Test Data ---
-TARGET_URL_BASE = "http://test.com/files"
-TARGET_PARAM = "file"
-PASSWD_CONTENT = "root:x:0:0:root:/root:/bin/bash"
-WIN_CONTENT = "[boot loader]"
+TARGET_URL_BASE = "http://test.com/app/"
+DEFAULT_WORDLIST = {".env", "admin/"}
+DEFAULT_COOKIES = {}
 
-# Fixtures are loaded from conftest.py
+# --- Fixtures are loaded from conftest.py ---
 
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_traversal_finds_passwd(mock_addon, target_info_vulnerable_param):
-    """Test: Payload retrieves /etc/passwd content via GET request."""
-    working_payload = "../../../etc/passwd"
+async def test_discovery_finds_200_ok(mock_addon):
+    """Test: Finds a sensitive file with a 200 OK response."""
+    found_file = ".env"
+    target_url = f"{TARGET_URL_BASE}{found_file}"
 
-    # --- Mock a GET request, not HEAD ---
-    respx.get(TARGET_URL_BASE, params={TARGET_PARAM: working_payload}).respond(
-        status_code=200, text=f"{PASSWD_CONTENT}\n"
-    )
-    # Fallback for other requests
-    respx.route().respond(404)
+    # 1. Mock the specific successful response (takes precedence)
+    respx.head(target_url).respond(status_code=200)
+    # 2. Mock a generic fallback for any other unmocked HEAD request
+    respx.route(method="HEAD").respond(404)
 
     test_client = httpx.AsyncClient(follow_redirects=False)
-    mock_logger = MagicMock()
+    mock_logger = MagicMock(spec=["debug", "info", "warn", "error"])
 
-    await scan_directory_traversal(
-        target_info_vulnerable_param, {}, test_client, mock_addon, mock_logger
+    await scan_content_discovery(
+        base_dir_url=TARGET_URL_BASE,
+        wordlist=DEFAULT_WORDLIST,
+        cookies=DEFAULT_COOKIES,
+        http_client=test_client,
+        addon_instance=mock_addon,
+        logger=mock_logger,
     )
 
-    mock_addon._log_finding.assert_any_call(
+    mock_addon._log_finding.assert_called_once_with(
         level="ERROR",
-        finding_type="Directory Traversal? (Content Match)",
-        evidence={
-            "param": TARGET_PARAM,
-            "payload": working_payload,
-            "matched_pattern": "root:x:0:0",
-        },
+        finding_type="Content Discovery - File/Dir Found",
+        url=target_url,
+        detail="Found accessible resource with status code 200.",
+        evidence={"status_code": 200, "wordlist_item": found_file},
     )
 
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_traversal_finds_winini(mock_addon, target_info_vulnerable_param):
-    """Test: Payload retrieves win.ini content via GET request."""
-    working_payload = "..\\..\\windows/win.ini"
+async def test_discovery_finds_403_forbidden(mock_addon):
+    """Test: Finds a sensitive directory with a 403 Forbidden response."""
+    found_dir = "admin/"
+    target_url = f"{TARGET_URL_BASE}{found_dir}"
 
-    # --- Mock a GET request, not HEAD ---
-    respx.get(TARGET_URL_BASE, params={TARGET_PARAM: working_payload}).respond(
-        status_code=200, text=f"; for 16-bit app support\n{WIN_CONTENT}\n"
-    )
-    respx.route().respond(404)  # Fallback
+    # Correct mock order: specific first, then fallback
+    respx.head(target_url).respond(status_code=403)
+    respx.route(method="HEAD").respond(404)
 
     test_client = httpx.AsyncClient(follow_redirects=False)
     mock_logger = MagicMock()
 
-    await scan_directory_traversal(
-        target_info_vulnerable_param, {}, test_client, mock_addon, mock_logger
+    await scan_content_discovery(
+        TARGET_URL_BASE, DEFAULT_WORDLIST, {}, test_client, mock_addon, mock_logger
     )
 
-    # Find the specific call to be more robust
-    found_call = False
-    for call in mock_addon._log_finding.call_args_list:
-        if call.kwargs.get("finding_type") == "Directory Traversal? (Content Match)":
-            assert r"\[boot loader\]" in call.kwargs.get("evidence", {}).get(
-                "matched_pattern", ""
-            )
-            found_call = True
-            break
-    assert found_call, "Expected ERROR log for Directory Traversal (win.ini) not found"
+    mock_addon._log_finding.assert_called_once_with(
+        level="WARN",
+        finding_type="Content Discovery - Interesting Status 403",
+        url=target_url,
+        detail="Found accessible resource with status code 403.",
+        evidence={"status_code": 403, "wordlist_item": found_dir},
+    )
 
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_traversal_no_hit(mock_addon, target_info_vulnerable_param):
-    """Test: Traversal payloads are sent, but no sensitive content is found."""
-    # Mock all GET requests to return normal content
-    respx.route(method="GET").respond(200, text="<html>Normal page</html>")
+async def test_discovery_ignores_404(mock_addon):
+    """Test: Does not log findings for 404 Not Found responses."""
+    # Mock all HEAD requests to return 404
+    respx.route(method="HEAD").respond(404)
 
     test_client = httpx.AsyncClient(follow_redirects=False)
     mock_logger = MagicMock()
 
-    await scan_directory_traversal(
-        target_info_vulnerable_param, {}, test_client, mock_addon, mock_logger
+    await scan_content_discovery(
+        TARGET_URL_BASE, DEFAULT_WORDLIST, {}, test_client, mock_addon, mock_logger
     )
 
     mock_addon._log_finding.assert_not_called()

@@ -1,6 +1,6 @@
 # nightcrawler/addon.py
 import mitmproxy.http
-from mitmproxy import ctx, http, addonmanager
+from mitmproxy import ctx, http, addonmanager, command
 import asyncio
 import httpx
 import time
@@ -237,6 +237,37 @@ class MainAddon:
             get_final_value("nc_output_html"), "HTML report"
         )
 
+    # --- ADDED: New command to dump discovered URLs ---
+    @command.command("nightcrawler.dump_urls")
+    def dump_urls(self):
+        """
+        Dumps all discovered URLs to a file named 'nightcrawler_links.txt'
+        in the current working directory.
+        """
+        if not self.discovered_urls:
+            # Use ctx.log.alert for high-visibility feedback to the user
+            ctx.log.alert("[Nightcrawler] No URLs discovered yet to dump.")
+            return
+
+        # Sort the URLs for consistent output
+        sorted_urls = sorted(list(self.discovered_urls))
+        # Define the output file path relative to the current directory
+        output_filename = "nightcrawler_links.txt"
+        output_path = pathlib.Path(output_filename).resolve()
+
+        try:
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(f"# Discovered URLs for scope: {self.effective_scope}\n")
+                f.write(f"# Dumped at: {datetime.datetime.now().isoformat()}\n\n")
+                for url in sorted_urls:
+                    f.write(f"{url}\n")
+
+            ctx.log.alert(
+                f"[Nightcrawler] Successfully dumped {len(sorted_urls)} URLs to: {output_path}"
+            )
+        except Exception as e:
+            ctx.log.alert(f"[Nightcrawler] Error dumping URLs to {output_path}: {e}")
+
     def _load_wordlist_list(
         self, filepath: str, default_items: list[str], list_type: str
     ) -> list[str]:
@@ -383,12 +414,23 @@ class MainAddon:
             self.logger.error(f"Failed to write HTML report: {e}")
 
     def running(self):
+        """Initialize resources, start workers, and set key bindings."""
         self.logger = ctx.log
         self.logger.info("=" * 30)
         self.logger.info(f" Nightcrawler Addon v{nightcrawler_version} Running... ")
         self.logger.info("=" * 30)
         self.configure(set(ctx.options.keys()))
         self.logger.info(f"Effective Scope: {self.effective_scope or 'Not Set (Idle)'}")
+
+        # --- ADDED: Key binding logic ---
+        # Binds the 'd' key to the 'nightcrawler.dump_urls' command.
+        # The second argument is a short help text shown in mitmproxy's key binding help ('?').
+        try:
+            ctx.master.keymap.add("d", "Dump discovered URLs", "nightcrawler.dump_urls")
+            ctx.log.info("Key 'd' is now bound to dump discovered URLs.")
+        except Exception as e:
+            ctx.log.warn(f"Could not set key binding 'd': {e}")
+
         if not self.semaphore or self.semaphore._value != self.max_concurrency:
             self.semaphore = asyncio.Semaphore(self.max_concurrency)
         if (

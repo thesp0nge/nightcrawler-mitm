@@ -3,13 +3,12 @@
 
 import re
 from mitmproxy import http
-from typing import Dict, TYPE_CHECKING, Any, List
+from typing import Dict, TYPE_CHECKING, Any, List, Optional
 
 if TYPE_CHECKING:
-    # To avoid circular import for type hinting only
     from nightcrawler.addon import MainAddon
 
-# Headers to check for presence
+# --- Configuration Constants for Header Checks ---
 EXPECTED_SECURITY_HEADERS: List[str] = [
     "Strict-Transport-Security",
     "Content-Security-Policy",
@@ -22,8 +21,13 @@ EXPECTED_SECURITY_HEADERS: List[str] = [
     "Cross-Origin-Resource-Policy",
 ]
 CSP_REPORT_ONLY_HEADER = "Content-Security-Policy-Report-Only"
-MIN_HSTS_AGE = 15552000  # Approx 6 months in seconds
-INFO_DISCLOSURE_HEADERS = ["Server", "X-Powered-By", "X-AspNet-Version", "Via"]
+MIN_HSTS_AGE: int = 15552000
+INFO_DISCLOSURE_HEADERS: List[str] = [
+    "Server",
+    "X-Powered-By",
+    "X-AspNet-Version",
+    "Via",
+]
 GENERIC_SERVER_VALUES = {"apache", "nginx", "iis", "envoy", "cloudflare"}
 SENSITIVE_CONTENT_TYPES = {"application/json", "application/xml", "text/xml"}
 
@@ -32,9 +36,7 @@ def check_security_headers(
     response: http.Response, url: str, addon_instance: "MainAddon", logger: Any
 ):
     """
-    Checks for presence/absence and basic validity of common security headers,
-    plus checks for info disclosure, caching, and CORS headers.
-    Logs findings using the provided addon_instance.
+    Orchestrates all passive header checks.
     """
     headers = response.headers
     present_headers = {}
@@ -60,26 +62,24 @@ def check_security_headers(
             evidence={"missing": missing_std_headers},
         )
 
-    # --- Basic checks for present standard headers ---
-    hsts_value = present_headers.get("Strict-Transport-Security")
-    if hsts_value:
+    if hsts_value := present_headers.get("Strict-Transport-Security"):
         _check_hsts_value(hsts_value, url, addon_instance, logger)
+    if xcto_value := present_headers.get("X-Content-Type-Options"):
+        if xcto_value.lower().strip() != "nosniff":
+            _log_xcto_issue(xcto_value, url, addon_instance)
 
-    xcto_value = present_headers.get("X-Content-Type-Options")
-    if xcto_value is not None and xcto_value.lower().strip() != "nosniff":
-        _log_xcto_issue(xcto_value, url, addon_instance)
+    if csp_value := present_headers.get("Content-Security-Policy"):
+        _check_csp_directives(
+            csp_value, url, addon_instance, logger, is_report_only=False
+        )
+    if csp_report_value := headers.get(CSP_REPORT_ONLY_HEADER):
+        _check_csp_directives(
+            csp_report_value, url, addon_instance, logger, is_report_only=True
+        )
 
-    csp_value = present_headers.get("Content-Security-Policy")
-    if csp_value:
-        _check_csp_directives(csp_value, url, addon_instance)
-
-    # --- New Checks ---
-    _check_info_disclosure_headers(headers, url, addon_instance, logger)
-    _check_caching_headers(response, url, addon_instance)  # Pass full response
+    _check_info_disclosure_headers(headers, url, addon_instance)
+    _check_caching_headers(response, url, addon_instance)
     _check_cors_headers(headers, url, addon_instance)
-
-
-# --- Helper Check Functions ---
 
 
 def _check_hsts_value(
@@ -88,17 +88,16 @@ def _check_hsts_value(
     """Checks HSTS max-age directive."""
     if "max-age" in hsts_value.lower():
         try:
-            max_age_str = hsts_value.lower().split("max-age=")[1].split(";")[0].strip()
-            max_age = int(max_age_str)
+            max_age = int(hsts_value.lower().split("max-age=")[1].split(";")[0].strip())
             if max_age < MIN_HSTS_AGE:
                 addon_instance._log_finding(
                     level="WARN",
                     finding_type="Passive Scan - Weak HSTS",
                     url=url,
-                    detail=f"HSTS max-age ({max_age}) is less than recommended minimum ({MIN_HSTS_AGE}).",
+                    detail=f"HSTS max-age ({max_age}) is less than recommended.",
                     evidence={"header": f"Strict-Transport-Security: {hsts_value}"},
                 )
-        except (IndexError, ValueError, TypeError):
+        except (IndexError, ValueError):
             logger.debug(f"Could not parse HSTS max-age from '{hsts_value}' for {url}")
     else:
         addon_instance._log_finding(
@@ -116,39 +115,84 @@ def _log_xcto_issue(xcto_value: str, url: str, addon_instance: "MainAddon"):
         level="WARN",
         finding_type="Passive Scan - Incorrect X-Content-Type-Options",
         url=url,
-        detail=f"X-Content-Type-Options set to '{xcto_value}' instead of recommended 'nosniff'.",
+        detail=f"X-Content-Type-Options set to '{xcto_value}' instead of 'nosniff'.",
         evidence={"header": f"X-Content-Type-Options: {xcto_value}"},
     )
 
 
-def _check_csp_directives(csp_value: str, url: str, addon_instance: "MainAddon"):
-    """Performs basic checks for weak CSP directives."""
-    weak_directives_found = []
+def _check_csp_directives(
+    csp_value: str,
+    url: str,
+    addon_instance: "MainAddon",
+    logger: Any,
+    is_report_only: bool = False,
+):
+    """Performs deeper checks for common weak CSP directives by parsing them."""
+    weaknesses_found = set()
     csp_lower = csp_value.lower()
+    finding_prefix = (
+        "Passive Scan - Weak CSP"
+        if not is_report_only
+        else "Passive Scan - Weak CSP (Report-Only)"
+    )
+
+    # Check 1: Unsafe keywords present anywhere in the policy
     if "'unsafe-inline'" in csp_lower:
-        weak_directives_found.append("'unsafe-inline'")
+        weaknesses_found.add("'unsafe-inline'")
     if "'unsafe-eval'" in csp_lower:
-        weak_directives_found.append("'unsafe-eval'")
-    if re.search(r"(script-src|default-src)\s+([^;]*?\s+\*\s+[^;]*)", csp_lower):
-        weak_directives_found.append("Wildcard (*) source")
-    if re.search(r"(script-src|default-src)\s+([^;]*?\s+http:\s+[^;]*)", csp_lower):
-        weak_directives_found.append("HTTP: source")
-    if "object-src" not in csp_lower and "default-src" not in csp_lower:
-        weak_directives_found.append("Missing object-src/default-src")
-    if "base-uri" not in csp_lower:
-        weak_directives_found.append("Missing base-uri")
-    if weak_directives_found:
+        weaknesses_found.add("'unsafe-eval'")
+
+    # Check 2: Parse directives and check for overly broad sources
+    try:
+        directives = {
+            d.strip().split(None, 1)[0]: d.strip().split(None, 1)[1] if " " in d else ""
+            for d in csp_lower.split(";")
+            if d.strip()
+        }
+
+        for directive_name, directive_value in directives.items():
+            if directive_name in [
+                "script-src",
+                "default-src",
+                "style-src",
+                "connect-src",
+                "img-src",
+                "font-src",
+            ]:
+                sources = set(directive_value.split())
+                if "*" in sources:
+                    weaknesses_found.add(f"Wildcard (*) source in '{directive_name}'")
+                if "data:" in sources:
+                    weaknesses_found.add(
+                        f"Broad source ('data:') in '{directive_name}'"
+                    )
+                if "http:" in sources:
+                    weaknesses_found.add(
+                        f"Insecure source ('http:') in '{directive_name}'"
+                    )
+
+        # Check 3: Missing critical security directives
+        if "object-src" not in directives and "default-src" not in directives:
+            weaknesses_found.add("Missing 'object-src' or 'default-src'")
+        if "base-uri" not in directives:
+            weaknesses_found.add("Missing 'base-uri'")
+        if "frame-ancestors" not in directives:
+            weaknesses_found.add("Missing 'frame-ancestors' directive")
+    except Exception as e:
+        logger.warn(f"Could not parse CSP header for {url}: {e}")
+
+    if weaknesses_found:
         addon_instance._log_finding(
             level="WARN",
-            finding_type="Passive Scan - Weak CSP",
+            finding_type=finding_prefix,
             url=url,
-            detail=f"Potential weak directives/sources found: {', '.join(sorted(list(set(weak_directives_found))))}",
-            evidence={"header": f"CSP Header Snippet: {csp_value[:150]}..."},
+            detail=f"Potential weaknesses found in Content-Security-Policy: {', '.join(sorted(list(weaknesses_found)))}",
+            evidence={"header": f"CSP: {csp_value[:150]}..."},
         )
 
 
 def _check_info_disclosure_headers(
-    headers: http.Headers, url: str, addon_instance: "MainAddon", logger: Any
+    headers: http.Headers, url: str, addon_instance: "MainAddon"
 ):
     """Checks for headers that might disclose backend technology/versions."""
     for header_name in INFO_DISCLOSURE_HEADERS:
@@ -162,8 +206,6 @@ def _check_info_disclosure_headers(
             elif header_name == "X-Powered-By":
                 log_level = "WARN"
                 detail = f"Potentially unnecessary info disclosed in '{header_name}': {value[:100]}"
-            elif header_name == "Via":
-                detail = f"Proxy detected via '{header_name}' header: {value[:100]}"
             addon_instance._log_finding(
                 level=log_level,
                 finding_type=f"Passive Scan - Info Disclosure ({header_name})",
@@ -183,7 +225,6 @@ def _check_caching_headers(
     content_type = headers.get("Content-Type", "").lower()
     is_sensitive_type = any(ct in content_type for ct in SENSITIVE_CONTENT_TYPES)
     is_public = "public" in cache_control
-
     if is_public and is_sensitive_type:
         addon_instance._log_finding(
             level="WARN",

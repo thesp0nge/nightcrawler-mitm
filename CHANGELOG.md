@@ -10,7 +10,8 @@ and this project adheres to
 
 ### Added
 
-- _Future features go here_
+- Added an interactive key binding (d) to dump all discovered URLs to a
+  nightcrawler_links.txt file on the fly.
 
 ### Changed
 
