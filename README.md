@@ -171,11 +171,11 @@ grep nc*
 This project is licensed under the MIT License. See the LICENSE file for
 details.
 
-## CONTRIBUTING (Optional)
+## CONTRIBUTING & EXTENSIBILITY
 
-Contributions welcome! See the GitHub repository:
-<https://github.com/thesp0nge/nightcrawler-mitm>
+Nightcrawler is designed to be extensible. We welcome contributions and have
+created a plugin-like architecture for adding new active scanners.
 
-```
-
-```
+If you are a developer and want to add your own checks (e.g., for SSRF, Command
+Injection, etc.), please see our detailed guide in the `CONTRIBUTING.md` file in
+the repository.

@@ -14,7 +14,12 @@ and this project adheres to
 
 ### Changed
 
-- _Future changes go here_
+- Improved Contributor Experience: Refactored the project structure by moving
+  the scanner template (skeleton_scanner.py) from the core source code into a
+  dedicated top-level examples/ directory. This creates a clearer separation
+  between application code and developer documentation.
+
+- Updated CONTRIBUTING.md to reflect the new location of the skeleton scanner.
 
 ### Fixed
 
