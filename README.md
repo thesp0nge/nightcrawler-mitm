@@ -16,7 +16,12 @@ scanning, designed as a security researcher's sidekick.
   - Security Headers (HSTS, CSP, XCTO, XFO, Referrer-Policy, Permissions-Policy,
     COOP, COEP, CORP, basic weakness checks).
   - Cookie Attributes (Secure, HttpOnly, SameSite).
-  - JWT Detection & Decoding (in Headers and JSON responses).
+  - JWT Discovery: Finds and decodes JWTs in headers and JSON responses,
+    checking for alg:none and expired claims.
+  - JS Library Identification: Detects common JavaScript libraries and their
+    versions.
+  - WebSocket Authentication: Warns if a WebSocket connection is established
+    without a session cookie.
   - Basic Info Disclosure checks (Comments, basic keyword context - Note:
     API/Key/Secret checks temporarily disabled).
 - Crawls the target application to discover new endpoints.

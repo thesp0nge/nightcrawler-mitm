@@ -33,6 +33,7 @@ try:
         handle_websocket_error,
         handle_websocket_end,
     )
+    from nightcrawler.passive_scans.websockets import check_websocket_authentication
     from nightcrawler.active_scans.discovery import scan_content_discovery
     from nightcrawler.active_scans.traversal import scan_directory_traversal
     from nightcrawler import __version__ as nightcrawler_version
@@ -754,7 +755,14 @@ class MainAddon:
                     self.discovery_queue.task_done()
 
     def websocket_start(self, flow: http.HTTPFlow):
+        """Mitmproxy hook called when a WebSocket connection is established."""
         handle_websocket_start(flow, self)
+        try:
+            check_websocket_authentication(flow, self, self.logger)
+        except Exception as e:
+            self.logger.error(
+                f"Error during WebSocket authentication check for {flow.request.pretty_url}: {e}"
+            )
 
     def websocket_message(self, flow: http.HTTPFlow):
         handle_websocket_message(flow, self)

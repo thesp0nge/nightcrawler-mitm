@@ -13,6 +13,15 @@ and this project adheres to
 - Added an interactive key binding (d) to dump all discovered URLs to a
   nightcrawler_links.txt file on the fly.
 
+- Passive WebSocket Authentication Scanner:
+  - Added a new passive check module (passive_scans/websockets.py).
+  - The scanner analyzes WebSocket upgrade requests and warns if no common
+    session cookie is present, indicating a potentially unauthenticated
+    endpoint.
+  - Integrated the check into the websocket_start hook in addon.py.
+  - Added a new test suite (tests/test_passive_websockets.py) to verify the new
+    scanner's logic.
+
 ### Changed
 
 - Improved Contributor Experience: Refactored the project structure by moving
