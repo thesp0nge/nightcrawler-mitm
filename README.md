@@ -1,6 +1,6 @@
 # nightcrawler-mitm
 
-![alt text](https://github.com/thesp0nge/nightcrawler-mitm/blob/main/logo_transparent.png?raw=true)
+![alt text](https://github.com/thesp0nge/nightcrawler-mitm/blob/main/logo.png?raw=true)
 
 Version: 0.9.0
 
