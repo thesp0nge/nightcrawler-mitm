@@ -10,8 +10,22 @@ and this project adheres to
 
 ### Added
 
-- Added an interactive key binding (d) to dump all discovered URLs to a
-  nightcrawler_links.txt file on the fly.
+### Changed
+
+### Fixed
+
+## [0.10.0] - 2025-07-17
+
+### Added
+
+- On-Demand URL Dumping:
+
+  - On startup, Nightcrawler now prints its Process ID (PID). Users on
+    Linux/macOS can send a SIGUSR1 signal (kill -USR1 <PID>) to dump all
+    discovered URLs to nightcrawler_links.txt on the fly without stopping the
+    tool.
+
+The dump_urls command was refactored into a standard method to support this.
 
 - Passive WebSocket Authentication Scanner:
   - Added a new passive check module (passive_scans/websockets.py).
@@ -370,7 +384,9 @@ and this project adheres to
   runner.
 
 [Unreleased]:
-  https://github.com/thesp0nge/nightcrawler-mitm/compare/v0.9.0...HEAD
+  https://github.com/thesp0nge/nightcrawler-mitm/compare/v0.10.0...HEAD
+[0.10.0]:
+  https://github.com/thesp0nge/nightcrawler-mitm/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/thesp0nge/nightcrawler-mitm/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/thesp0nge/nightcrawler-mitm/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/thesp0nge/nightcrawler-mitm/compare/v0.6.0...v0.7.0

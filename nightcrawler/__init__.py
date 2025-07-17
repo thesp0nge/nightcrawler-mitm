@@ -3,4 +3,4 @@
 # It can be empty or define the package's public API.
 # Example: from .addon import MainAddon
 
-__version__ = "0.9.0"  # Define the version here for programmatic access
+__version__ = "0.10.0"  # Define the version here for programmatic access

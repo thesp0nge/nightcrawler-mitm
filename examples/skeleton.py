@@ -43,7 +43,7 @@ async def scan_skeleton_vulnerability(
         cookies (dict): Cookies from the original request.
         http_client (httpx.AsyncClient): The shared, configured httpx client for making requests.
         addon_instance (MainAddon): The instance of the main addon, used to call _log_finding.
-        logger (Any): The logger instance (ctx.log) for printing debug/error messages.
+        logger (Any): The logger instance for printing debug/error messages.
     """
     # Extract details from the original request
     url = target_info["url"]

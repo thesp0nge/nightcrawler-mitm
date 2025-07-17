@@ -58,7 +58,7 @@ PRIVATE_KEY_HEADER_REGEX = re.compile(
 
 
 def check_info_disclosure(
-    response: http.Response, url: str, addon_instance: "MainAddon"
+    response: http.Response, url: str, addon_instance: "MainAddon", logger: Any
 ):
     """
     Checks response body for sensitive keywords, potential API keys,
@@ -73,7 +73,7 @@ def check_info_disclosure(
     # Limit
     max_size_to_check = 2 * 1024 * 1024  # 2MB limit for content checks
     if response.content and len(response.content) > max_size_to_check:
-        ctx.log.debug(
+        logger.debug(
             f"[Passive Content Check] Response body from {url} too large ({len(response.content)} bytes), skipping content analysis."
         )
         return
@@ -103,7 +103,7 @@ def check_info_disclosure(
                     evidence=None,
                 )
     except Exception as e:
-        ctx.log.debug(f"Error during comment check at {url}: {e}")
+        logger.debug(f"Error during comment check at {url}: {e}")
 
     # 2. Sensitive Keywords Context (Basic check, needs refinement)
     try:
@@ -149,7 +149,7 @@ def check_info_disclosure(
                     )
                     matches_found_count += 1
     except Exception as e:
-        ctx.log.debug(f"Regex error during keyword check at {url}: {e}")
+        logger.debug(f"Regex error during keyword check at {url}: {e}")
 
     # 3. API Key / Secret Patterns (High potential for FPs)
     try:
@@ -192,7 +192,7 @@ def check_info_disclosure(
             )
             aws_keys_reported += 1
     except Exception as e:
-        ctx.log.debug(f"Regex error during API key check at {url}: {e}")
+        logger.debug(f"Regex error during API key check at {url}: {e}")
 
     # 4. Private Key Headers
     try:
@@ -207,7 +207,7 @@ def check_info_disclosure(
                 }
             )
     except Exception as e:
-        ctx.log.debug(f"Regex error during private key check at {url}: {e}")
+        logger.debug(f"Regex error during private key check at {url}: {e}")
 
     # --- Log all findings gathered in this function ---
     # Use the centralized logging method from the addon instance

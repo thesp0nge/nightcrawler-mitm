@@ -2,7 +2,7 @@
 
 ![alt text](https://github.com/thesp0nge/nightcrawler-mitm/blob/main/logo.png?raw=true)
 
-Version: 0.9.0
+Version: 0.10.0
 
 A mitmproxy addon for background passive analysis, crawling, and basic active
 scanning, designed as a security researcher's sidekick.
@@ -83,6 +83,40 @@ You can pass any other valid `mitmproxy` arguments (like `--ssl-insecure`, `-p`,
 
 4. Browse: Browse the target application(s). Findings appear in the terminal and
    optionally in the specified JSONL file.
+
+By default, Nightcrawler runs in a "quiet" mode that suppresses mitmproxy's
+standard connection logs, allowing you to focus only on the findings generated
+by the addon.
+
+### Recommended Commands
+
+- **Standard Mode (Quiet):** Shows only Nightcrawler's INFO, WARN, and ERROR
+  logs. `nightcrawler --set nc_scope=nightcrawler.test`
+
+- **Nightcrawler Debug Mode:** Use the `-d` or `--debug` flag to see
+  Nightcrawler's own DEBUG messages (e.g., `[SCAN WORKER] Starting...`), while
+  still hiding mitmproxy's connection chatter.
+  `nightcrawler -d --set nc_scope=nightcrawler.test`
+
+- **Full Verbosity Mode:** Use mitmproxy's standard `-v` flag to see
+  **everything**, including all low-level connection logs. This is useful for
+  debugging connection issues.
+  `nightcrawler -v --set nc_scope=nightcrawler.test`
+
+### On-Demand URL Dumping (Linux/macOS)
+
+While Nightcrawler is running, you can dump all discovered URLs to a file
+(`nightcrawler_links.txt`) without stopping the process.
+
+1. When Nightcrawler starts, it will print its **Process ID (PID)**.
+   `[INFO][Nightcrawler] Process ID (PID): 12345`
+   `[INFO][Nightcrawler] Send SIGUSR1 signal to dump discovered URLs (kill -USR1 12345)`
+
+2. From **another terminal window**, send the `SIGUSR1` signal to that PID:
+   `kill -USR1 12345`
+
+3. Nightcrawler will immediately write the URLs to `nightcrawler_links.txt` in
+   the directory where you started it.
 
 ## CONFIGURATION
 

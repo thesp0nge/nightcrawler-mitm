@@ -5,7 +5,6 @@ import asyncio
 import httpx
 import time
 import pathlib
-import random
 import json
 import datetime
 import logging
@@ -13,6 +12,7 @@ import traceback
 import os
 import yaml
 import html
+import signal
 from typing import Set, Dict, Any, Optional, List, TYPE_CHECKING, Union
 from urllib.parse import urlparse, urlunparse
 
@@ -68,6 +68,39 @@ def get_default_data_dir() -> pathlib.Path:
 DEFAULT_CONFIG_FILE_PATH: pathlib.Path = get_default_config_dir() / "config.yaml"
 
 
+# Custom Logger Formatter for Colors and Timestamps ---
+class ColoredFormatter(logging.Formatter):
+    """
+    A custom logger formatter that adds ANSI color codes to log messages
+    based on their severity level.
+    """
+
+    # ANSI escape codes for colors
+    GREY = "\x1b[38;20m"
+    GREEN = "\x1b[32;20m"
+    YELLOW = "\x1b[33;20m"
+    RED = "\x1b[31;20m"
+    BOLD_RED = "\x1b[31;1m"
+    RESET = "\x1b[0m"
+
+    # The format string now includes asctime for the timestamp
+    log_format = "%(asctime)s [%(levelname)s][Nightcrawler] %(message)s"
+    date_format = "%H:%M:%S"
+
+    FORMATS = {
+        logging.DEBUG: GREY + log_format + RESET,
+        logging.INFO: GREEN + log_format + RESET,
+        logging.WARNING: YELLOW + log_format + RESET,
+        logging.ERROR: RED + log_format + RESET,
+        logging.CRITICAL: BOLD_RED + log_format + RESET,
+    }
+
+    def format(self, record):
+        log_fmt = self.FORMATS.get(record.levelno)
+        formatter = logging.Formatter(log_fmt, datefmt=self.date_format)
+        return formatter.format(record)
+
+
 class MainAddon:
     """Main mitmproxy addon orchestrating all Nightcrawler tasks."""
 
@@ -94,7 +127,20 @@ class MainAddon:
         self.revisit_worker_task: Optional[asyncio.Task] = None
         self.discovery_worker_task: Optional[asyncio.Task] = None
         self._output_file_error_logged: bool = False
-        self.logger: Any = logging.getLogger("nightcrawler")  # Placeholder logger
+
+        # --- Setup Custom Logger ---
+        self.logger = logging.getLogger("nightcrawler")
+        # Prevent logger from propagating to mitmproxy's root logger
+        self.logger.propagate = False
+        self.logger.setLevel(logging.INFO)  # Capture all levels
+        # Clear existing handlers to prevent duplicates on addon reload
+        if self.logger.hasHandlers():
+            self.logger.handlers.clear()
+        # Add a handler to print to console (stderr)
+        handler = logging.StreamHandler()
+        handler.setFormatter(ColoredFormatter())
+        self.logger.addHandler(handler)
+        # -------------------------
 
     def load(self, loader: addonmanager.Loader):
         """Define all addon options."""
@@ -176,6 +222,12 @@ class MainAddon:
             default="",
             help="File path for discovery wordlist.",
         )
+        loader.add_option(
+            name="nc_debug_mode",
+            typespec=bool,
+            default=False,
+            help="Enable Nightcrawler's internal debug logging.",
+        )
 
     def configure(self, updated: Set[str]):
         """Process options using precedence: --set > Config File > Defaults."""
@@ -187,7 +239,7 @@ class MainAddon:
                 with open(config_path, "r", encoding="utf-8") as f:
                     loaded_config = yaml.safe_load(f) or {}
                 if not isinstance(loaded_config, dict):
-                    self.logger.warn(
+                    self.logger.warning(
                         f"Config file '{config_path}' is not a dict. Ignoring."
                     )
                     loaded_config = {}
@@ -202,6 +254,12 @@ class MainAddon:
                 return cli_or_default_val
             return loaded_config.get(name, cli_or_default_val)
 
+        # Set logger level based on the final determined value
+        if bool(get_final_value("nc_debug_mode")):
+            self.logger.setLevel(logging.DEBUG)
+            self.logger.debug("Nightcrawler debug logging enabled.")
+        else:
+            self.logger.setLevel(logging.INFO)
         self.effective_scope = {
             s.strip() for s in get_final_value("nc_scope").split(",") if s.strip()
         }
@@ -212,7 +270,7 @@ class MainAddon:
         self.xss_stored_prefix = get_final_value("nc_xss_stored_prefix")
         self.xss_stored_format = get_final_value("nc_xss_stored_format")
         if "{probe_id}" not in self.xss_stored_format:
-            self.logger.warn(
+            self.logger.warning(
                 f"Invalid nc_xss_stored_format: '{self.xss_stored_format}'. Reverting to default."
             )
             self.xss_stored_format = DEFAULT_XSS_STORED_FORMAT
@@ -238,16 +296,16 @@ class MainAddon:
             get_final_value("nc_output_html"), "HTML report"
         )
 
-    # --- ADDED: New command to dump discovered URLs ---
-    @command.command("nightcrawler.dump_urls")
     def dump_urls(self):
         """
         Dumps all discovered URLs to a file named 'nightcrawler_links.txt'
         in the current working directory.
         """
+        # Since this can be called from a signal, it might interrupt other logging.
+        # We add newlines for clarity in the console.
+        self.logger.info("\n--- URL dump requested via signal ---")
         if not self.discovered_urls:
-            # Use ctx.log.alert for high-visibility feedback to the user
-            ctx.log.alert("[Nightcrawler] No URLs discovered yet to dump.")
+            self.logger.warning("[Nightcrawler] No URLs discovered yet to dump.")
             return
 
         # Sort the URLs for consistent output
@@ -282,7 +340,7 @@ class MainAddon:
                 if line.strip() and not line.strip().startswith("#")
             ]
             if not words:
-                self.logger.warn(
+                self.logger.warning(
                     f"File '{path}' for {list_type} empty. Using defaults."
                 )
                 return list(default_items)
@@ -307,7 +365,7 @@ class MainAddon:
                 if line.strip() and not line.strip().startswith("#")
             }
             if not words:
-                self.logger.warn(
+                self.logger.warning(
                     f"File '{path}' for {list_type} empty. Using defaults."
                 )
                 return set(default_items)
@@ -346,9 +404,15 @@ class MainAddon:
         detail: str,
         evidence: Optional[Dict] = None,
     ):
+        """Logs finding using our custom logger and collects for reports."""
         log_func = getattr(self.logger, level.lower(), self.logger.info)
         log_message = f"[{finding_type}] {detail} at {url}"
         log_func(log_message)
+
+        if flow and level.upper() in ["WARN", "ERROR"]:
+            emoji = "⚠️" if level.upper() == "WARN" else "🚨"
+            flow.comment = f"{flow.comment + ' | ' if flow.comment else ''}{emoji} {finding_type}: {detail}"
+
         finding_data = {
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "level": level.upper(),
@@ -387,7 +451,7 @@ class MainAddon:
         )
         html_content = f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Nightcrawler Scan Report</title>
 <style>body{{font-family:sans-serif;margin:20px;}}h1,h2{{border-bottom:1px solid #ccc;}}table{{width:100%;border-collapse:collapse;font-size:0.9em;}}th,td{{border:1px solid #ddd;padding:8px;text-align:left;vertical-align:top;}}th{{background-color:#f2f2f2;}}pre{{background-color:#eee;padding:5px;border:1px solid #ccc;white-space:pre-wrap;word-wrap:break-word;}}
-.level-ERROR{{color:red;font-weight:bold;}}.level-WARN{{color:orange;font-weight:bold;}}.level-INFO{{color:blue;}}.evidence-key{{font-weight:bold;}}</style></head>
+.level-ERROR{{color:red;font-weight:bold;}}.level.warning{{color:orange;font-weight:bold;}}.level-INFO{{color:blue;}}.evidence-key{{font-weight:bold;}}</style></head>
 <body><h1>Nightcrawler Scan Report</h1><p>Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p><h2>Summary</h2><p>Total Findings: {len(sorted_findings)}</p>
 <table><thead><tr><th>Timestamp (UTC)</th><th>Level</th><th>Type</th><th>URL/Context</th><th>Detail</th><th>Evidence</th></tr></thead><tbody>"""
         for finding in sorted_findings:
@@ -416,21 +480,37 @@ class MainAddon:
 
     def running(self):
         """Initialize resources, start workers, and set key bindings."""
-        self.logger = ctx.log
         self.logger.info("=" * 30)
         self.logger.info(f" Nightcrawler Addon v{nightcrawler_version} Running... ")
+        self.logger.info(f"Process ID (PID): {os.getpid()}")
+        self.logger.info(
+            "Send SIGUSR1 signal to dump discovered URLs (kill -USR1 "
+            + str(os.getpid())
+            + ")"
+        )
+
         self.logger.info("=" * 30)
-        self.configure(set(ctx.options.keys()))
+
         self.logger.info(f"Effective Scope: {self.effective_scope or 'Not Set (Idle)'}")
 
-        # --- ADDED: Key binding logic ---
-        # Binds the 'd' key to the 'nightcrawler.dump_urls' command.
-        # The second argument is a short help text shown in mitmproxy's key binding help ('?').
-        try:
-            ctx.master.keymap.add("d", "Dump discovered URLs", "nightcrawler.dump_urls")
-            ctx.log.info("Key 'd' is now bound to dump discovered URLs.")
-        except Exception as e:
-            ctx.log.warn(f"Could not set key binding 'd': {e}")
+        # --- Setup Signal Handler ---
+        # This will only work on Unix-like systems (Linux, macOS)
+        if hasattr(signal, "SIGUSR1"):
+            try:
+                # Get the asyncio event loop to safely schedule the call from the signal
+                loop = asyncio.get_running_loop()
+                # Set up the signal handler to call our dump function via the loop
+                signal.signal(
+                    signal.SIGUSR1,
+                    lambda *args: loop.call_soon_threadsafe(self.dump_urls),
+                )
+                self.logger.info("Signal handler for URL dump (SIGUSR1) is active.")
+            except Exception as e:
+                self.logger.warning(f"Could not set signal handler: {e}")
+        else:
+            self.logger.warning(
+                "OS does not support SIGUSR1. On-demand URL dump is disabled."
+            )
 
         if not self.semaphore or self.semaphore._value != self.max_concurrency:
             self.semaphore = asyncio.Semaphore(self.max_concurrency)
@@ -459,7 +539,9 @@ class MainAddon:
                 prev_task.cancel()
             setattr(self, task_attr, asyncio.create_task(worker_func()))
         if not self.effective_scope:
-            self.logger.warn("REMINDER: No target scope set via '--set nc_scope=...'.")
+            self.logger.warning(
+                "REMINDER: No target scope set via '--set nc_scope=...'."
+            )
         else:
             self.logger.info("Background workers started/verified.")
 
@@ -606,7 +688,7 @@ class MainAddon:
                             response.text, str(response.url)
                         )
                     except Exception as e:
-                        self.logger.warn(
+                        self.logger.warning(
                             f"[CRAWLER TASK] Error visiting {url_to_crawl}: {e}"
                         )
             except asyncio.CancelledError:
@@ -708,7 +790,7 @@ class MainAddon:
                             response.text, url_to_revisit
                         )
                     except Exception as e:
-                        self.logger.warn(
+                        self.logger.warning(
                             f"[Revisit] Error fetching {url_to_revisit}: {e}"
                         )
             except asyncio.CancelledError:
@@ -756,7 +838,7 @@ class MainAddon:
 
     def websocket_start(self, flow: http.HTTPFlow):
         """Mitmproxy hook called when a WebSocket connection is established."""
-        handle_websocket_start(flow, self)
+        handle_websocket_start(flow, self, self.logger)
         try:
             check_websocket_authentication(flow, self, self.logger)
         except Exception as e:
@@ -765,13 +847,13 @@ class MainAddon:
             )
 
     def websocket_message(self, flow: http.HTTPFlow):
-        handle_websocket_message(flow, self)
+        handle_websocket_message(flow, self, self.logger)
 
     def websocket_error(self, flow: http.HTTPFlow):
-        handle_websocket_error(flow, self)
+        handle_websocket_error(flow, self, self.logger)
 
     def websocket_end(self, flow: http.HTTPFlow):
-        handle_websocket_end(flow, self)
+        handle_websocket_end(flow, self, self.logger)
 
 
 # --- Addon Registration ---

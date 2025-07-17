@@ -16,7 +16,7 @@ async def scan_content_discovery(
     cookies: Dict[str, str],
     http_client: httpx.AsyncClient,
     addon_instance: "MainAddon",
-    logger: Any,  # Accept a logger object (e.g., ctx.log or a mock)
+    logger: Any,
 ):
     """
     Scans a base directory URL for hidden content using a wordlist.
