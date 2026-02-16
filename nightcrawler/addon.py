@@ -409,9 +409,9 @@ class MainAddon:
         log_message = f"[{finding_type}] {detail} at {url}"
         log_func(log_message)
 
-        if flow and level.upper() in ["WARN", "ERROR"]:
-            emoji = "⚠️" if level.upper() == "WARN" else "🚨"
-            flow.comment = f"{flow.comment + ' | ' if flow.comment else ''}{emoji} {finding_type}: {detail}"
+        # if flow and level.upper() in ["WARN", "ERROR"]:
+        # emoji = "⚠️" if level.upper() == "WARN" else "🚨"
+        # flow.comment = f"{flow.comment + ' | ' if flow.comment else ''}{emoji} {finding_type}: {detail}"
 
         finding_data = {
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),

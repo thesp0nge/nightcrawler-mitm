@@ -96,7 +96,7 @@ def run_all_passive_checks(
                 logger.debug(
                     "[Passive Orchestrator] -> Calling check_info_disclosure..."
                 )
-                check_info_disclosure(flow.response, url, addon_instance)
+                check_info_disclosure(flow.response, url, addon_instance, logger)
             except Exception as e:
                 logger.error(f"Error during info disclosure check for {url}: {e}")
 
