@@ -59,6 +59,7 @@ def run_all_passive_checks(
     if not any(PASSIVE_CHECKS_AVAILABLE.values()):
         return
 
+    addon_instance.stats["passive_total"] += 1
     url = flow.request.pretty_url
     logger.debug(f"[Passive Orchestrator] Running ALL checks for {url}")
 

@@ -1,6 +1,7 @@
 # nightcrawler/addon.py
 import mitmproxy.http
-from mitmproxy import ctx, http, addonmanager, command
+from mitmproxy import ctx, http, addonmanager
+
 import asyncio
 import httpx
 import time
@@ -141,6 +142,14 @@ class MainAddon:
         handler.setFormatter(ColoredFormatter())
         self.logger.addHandler(handler)
         # -------------------------
+
+        self.stats = {
+            "passive_total": 0,
+            "active_queued": 0,
+            "active_completed": 0,
+            "errors": 0,
+        }
+        self.scanner_status = {}
 
     def load(self, loader: addonmanager.Loader):
         """Define all addon options."""
@@ -527,6 +536,7 @@ class MainAddon:
                 follow_redirects=True,
                 limits=httpx.Limits(max_connections=self.max_concurrency + 10),
             )
+        asyncio.create_task(self._heartbeat_task())
         tasks_to_start = [
             ("_crawl_worker_task", self._crawl_worker),
             ("_scan_worker_task", self._scan_worker),
@@ -712,6 +722,7 @@ class MainAddon:
             try:
                 scan_details = await self.scan_queue.get()
                 target_url_short = scan_details.get("url", "N/A").split("?")[0]
+                self.stats["active_queued"] = self.scan_queue.qsize()
                 async with self.semaphore:
                     self.logger.debug(
                         f"[SCAN WORKER] Starting parameter scans for {target_url_short}..."
@@ -723,6 +734,7 @@ class MainAddon:
                         )
                         if not self.http_client:
                             continue
+                        self.scanner_status['sqli_basic'] = time.time()
                         await scan_sqli_basic(
                             scan_details,
                             cookies,
@@ -731,6 +743,7 @@ class MainAddon:
                             self,
                             self.logger,
                         )
+                        self.scanner_status['xss_reflected_basic'] = time.time()
                         await scan_xss_reflected_basic(
                             scan_details,
                             cookies,
@@ -739,6 +752,7 @@ class MainAddon:
                             self,
                             self.logger,
                         )
+                        self.scanner_status['xss_stored_inject'] = time.time()
                         await scan_xss_stored_inject(
                             scan_details,
                             cookies,
@@ -748,6 +762,7 @@ class MainAddon:
                             self.xss_stored_format,
                             self.logger,
                         )
+                        self.scanner_status['directory_traversal'] = time.time()
                         await scan_directory_traversal(
                             scan_details, cookies, self.http_client, self, self.logger
                         )
@@ -757,14 +772,18 @@ class MainAddon:
                                 self.revisit_in_progress.add(revisit_url)
                                 self.revisit_queue.put_nowait(revisit_url)
                     except Exception as e:
+                        self.stats["errors"] += 1
                         self.logger.error(
                             f"[SCAN TASK] Error during scan of {scan_details.get('url', 'N/A')}: {e}"
                         )
                         self.logger.error(traceback.format_exc())
+                    self.stats["active_completed"] += 1
             except asyncio.CancelledError:
+                self.stats["errors"] += 1
                 self.logger.info("Scan worker cancelled.")
                 break
             except Exception as e:
+                self.stats["errors"] += 1
                 self.logger.error(f"CRITICAL ERROR in Scan Worker: {e}")
                 self.logger.error(traceback.format_exc())
                 await asyncio.sleep(10)
@@ -817,6 +836,7 @@ class MainAddon:
                 async with self.semaphore:
                     if not self.http_client:
                         continue
+                    self.scanner_status['content_discovery'] = time.time()
                     await scan_content_discovery(
                         base_dir_url,
                         self.discovery_wordlist,
@@ -835,6 +855,41 @@ class MainAddon:
                 self.logger.error(traceback.format_exc())
                 if base_dir_url:
                     self.discovery_queue.task_done()
+
+    async def _heartbeat_task(self):
+        while True:
+            await asyncio.sleep(30)  # Ogni 30 secondi
+            pending_scans = self.scan_queue.qsize()
+            pending_crawls = self.crawl_queue.qsize()
+            pending_revisits = self.revisit_queue.qsize()
+            pending_discoveries = self.discovery_queue.qsize()
+
+            scanner_pings = []
+            for scanner, last_seen in self.scanner_status.items():
+                elapsed = time.time() - last_seen
+                if elapsed < 60:
+                    ago = f"{elapsed:.0f}s ago"
+                elif elapsed < 3600:
+                    ago = f"{elapsed/60:.0f}m ago"
+                else:
+                    ago = f"{elapsed/3600:.1f}h ago"
+                scanner_pings.append(f"    - {scanner}: {ago}")
+
+            scanner_status_log = "\n".join(scanner_pings)
+
+            ctx.log.info(
+                f"[NC-HEARTBEAT]\n"
+                f"  - Active Scan Queue: {pending_scans}\n"
+                f"  - Crawl Queue: {pending_crawls}\n"
+                f"  - Revisit Queue: {pending_revisits}\n"
+                f"  - Discovery Queue: {pending_discoveries}\n"
+                f"  - Completed Active Scans: {self.stats['active_completed']}\n"
+                f"  - Passive Checks Done: {self.stats['passive_total']}\n"
+                f"  - Errors: {self.stats['errors']}\n"
+                f"  --- Scanner Pings ---\n"
+                f"{scanner_status_log}"
+            )
+
 
     def websocket_start(self, flow: http.HTTPFlow):
         """Mitmproxy hook called when a WebSocket connection is established."""
