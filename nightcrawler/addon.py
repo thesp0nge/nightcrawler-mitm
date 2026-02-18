@@ -39,6 +39,7 @@ try:
     from nightcrawler.passive_scans.javascript import _check_osv_for_vulnerabilities
     from nightcrawler.active_scans.discovery import scan_content_discovery
     from nightcrawler.active_scans.traversal import scan_directory_traversal
+    from nightcrawler.active_scans.open_redirect import scan_open_redirect
     from nightcrawler import __version__ as nightcrawler_version
 except ImportError as e:
     logging.basicConfig(level=logging.CRITICAL)
@@ -791,6 +792,14 @@ class MainAddon:
                         self.scanner_status['directory_traversal'] = time.time()
                         await scan_directory_traversal(
                             scan_details, cookies, self.http_client, self, self.logger
+                        )
+                        self.scanner_status["open_redirect_scan"] = time.time()
+                        await scan_open_redirect(
+                            scan_details,
+                            cookies,
+                            self.http_client,
+                            self,
+                            self.logger,
                         )
                         self.scanner_status["idor_scan"] = time.time()
                         await scan_idor(
