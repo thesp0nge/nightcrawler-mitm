@@ -1,3 +1,10 @@
+import pytest
+import httpx
+import respx
+from unittest.mock import MagicMock
+from nightcrawler.active_scans.template_injection import scan_template_injection
+
+
 # Fixtures are loaded from conftest.py
 
 

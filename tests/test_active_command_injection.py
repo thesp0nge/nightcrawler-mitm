@@ -16,36 +16,31 @@ pytestmark = pytest.mark.asyncio
 
 
 @pytest.mark.asyncio
-@respx.mock
 async def test_cmd_injection_time_based(mocker, mock_addon, target_info_get):
     """Test: Detects time-based command injection by using a robust time mock."""
     payload = "| sleep 5 #"
 
-    # --- MORE ROBUST MOCKING STRATEGY ---
-    # Create a callable class that acts as a stateful time generator.
-    # This is immune to other parts of the code (like httpx) also calling time.time().
     class TimeGenerator:
         def __init__(self):
-            # The sequence of time values our scanner's code should receive.
             self.times_to_return = [0.0, 5.0]
             self.call_index = 0
 
         def __call__(self):
-            # Return the next time in the sequence.
             ret_val = self.times_to_return[self.call_index]
             self.call_index += 1
             return ret_val
 
-    # Patch time.time with an instance of our robust generator.
     mocker.patch(
         "nightcrawler.active_scans.command_injection.time.time", TimeGenerator()
     )
 
-    # We still need to mock the HTTP request itself to prevent a real network call.
-    respx.get("http://test.com/search", params={"query": "test" + payload}).respond(200)
+    # Mock the http_client's request method
+    mock_client = MagicMock(spec=httpx.AsyncClient)
+    mock_response = httpx.Response(200)
+    mock_client.request.return_value = mock_response
 
     await scan_command_injection(
-        target_info_get, {}, httpx.AsyncClient(), [payload], mock_addon, MagicMock()
+        target_info_get, {}, mock_client, [payload], mock_addon, MagicMock()
     )
 
     # Now the duration check (5.0 - 0.0 > 4.5) should pass, and the finding should be logged.

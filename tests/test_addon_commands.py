@@ -62,7 +62,7 @@ def test_dump_urls_writes_file(mocker):
     assert "Successfully dumped 3 URLs" in alert_message
 
 
-def test_dump_urls_no_urls(mocker):
+def test_dump_urls_no_urls(mocker, capsys):
     """
     Test: The dump_urls command does nothing and alerts the user
     if no URLs have been discovered.
@@ -73,7 +73,6 @@ def test_dump_urls_no_urls(mocker):
 
     # Mock dependencies
     mock_open = mocker.patch("builtins.open")
-    mock_ctx = mocker.patch("nightcrawler.addon.ctx")
 
     # 2. Call the REAL method
     addon.dump_urls()
@@ -81,7 +80,6 @@ def test_dump_urls_no_urls(mocker):
     # 3. Assertions
     # File should not have been opened
     mock_open.assert_not_called()
-    # An alert should have been shown to the user via the mocked ctx
-    mock_ctx.log.alert.assert_called_once_with(
-        "[Nightcrawler] No URLs discovered yet to dump."
-    )
+    # A warning should have been logged to stderr
+    captured = capsys.readouterr()
+    assert "[Nightcrawler] No URLs discovered yet to dump." in captured.err

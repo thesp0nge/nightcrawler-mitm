@@ -23,11 +23,12 @@ try:
     from nightcrawler.utils import is_in_scope, create_target_signature
     from nightcrawler.passive_scanner import run_all_passive_checks
     from nightcrawler.crawler import discover_and_queue_targets
-    from nightcrawler.sqli_scanner import scan_sqli_basic
+    from nightcrawler.sqli_scanner import scan_sqli_basic, scan_sqli_boolean_based
     from nightcrawler.xss_scanner import (
         scan_xss_reflected_basic,
         scan_xss_stored_inject,
     )
+    from nightcrawler.idor_scanner import scan_idor
     from nightcrawler.websocket_handler import (
         handle_websocket_start,
         handle_websocket_message,
@@ -735,11 +736,31 @@ class MainAddon:
                         if not self.http_client:
                             continue
                         self.scanner_status['sqli_basic'] = time.time()
+                        self.scanner_status["sqli_basic_append"] = time.time()
                         await scan_sqli_basic(
                             scan_details,
                             cookies,
                             self.http_client,
                             self.sqli_payloads,
+                            self,
+                            self.logger,
+                            mode="append",
+                        )
+                        self.scanner_status["sqli_basic_replace"] = time.time()
+                        await scan_sqli_basic(
+                            scan_details,
+                            cookies,
+                            self.http_client,
+                            self.sqli_payloads,
+                            self,
+                            self.logger,
+                            mode="replace",
+                        )
+                        self.scanner_status["sqli_boolean_based"] = time.time()
+                        await scan_sqli_boolean_based(
+                            scan_details,
+                            cookies,
+                            self.http_client,
                             self,
                             self.logger,
                         )
@@ -765,6 +786,14 @@ class MainAddon:
                         self.scanner_status['directory_traversal'] = time.time()
                         await scan_directory_traversal(
                             scan_details, cookies, self.http_client, self, self.logger
+                        )
+                        self.scanner_status["idor_scan"] = time.time()
+                        await scan_idor(
+                            scan_details,
+                            cookies,
+                            self.http_client,
+                            self,
+                            self.logger,
                         )
                         if target_method in ["POST", "PUT", "PATCH"]:
                             revisit_url = scan_details["url"]
