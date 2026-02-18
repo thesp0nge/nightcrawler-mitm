@@ -10,6 +10,11 @@ and this project adheres to
 
 ### Added
 
+- **Open Redirect Scanner:**
+  - Added a new active scanner module (`active_scans/open_redirect.py`) to detect open redirect vulnerabilities.
+  - The scanner identifies parameters that look like URLs, injects a test URL, and checks for 3xx redirects to the injected URL.
+  - Integrated the scanner into the main active scan worker in `addon.py`.
+  - Added comprehensive tests (`tests/test_active_open_redirect.py`) to verify its functionality.
 - **Automated Vulnerable Dependency Checking:**
   - Enhanced the passive JavaScript scanner (`passive_scans/javascript.py`) to automatically query the OSV.dev API for known vulnerabilities for identified JavaScript libraries and their versions.
   - Introduced a new asynchronous worker (`_vuln_check_worker`) in `addon.py` to handle these external API calls efficiently without blocking the main event loop.
