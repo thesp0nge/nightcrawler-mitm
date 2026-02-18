@@ -14,6 +14,24 @@ and this project adheres to
 
 ### Fixed
 
+## [0.11.0] - 2026-02-18
+
+### Added
+
+- **IDOR Scanner:** Added a new active scanner module (`nightcrawler/idor_scanner.py`) to detect Insecure Direct Object References by manipulating numeric parameters.
+
+### Changed
+
+- **Scanner Effectiveness:**
+  - Expanded the default payload lists in `config.py` for both SQLi and Reflected XSS to improve detection rates for common vulnerabilities.
+  - Enhanced the SQLi scanner (`sqli_scanner.py`) to support both `append` and `replace` modes for fuzzing parameters.
+  - Implemented boolean-based blind SQLi detection logic in the SQLi scanner.
+  - Changed the Stored XSS probe to a more distinct and active format (`nightcrawler_xss_probe_{probe_id}`) for more reliable detection.
+
+### Fixed
+
+- **Test Suite:** Fixed multiple failing tests and improved the stability of the test suite by correcting mocking strategies and assertions.
+
 ## [0.10.0] - 2025-07-17
 
 ### Added
