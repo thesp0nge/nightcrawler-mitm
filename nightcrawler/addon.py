@@ -36,6 +36,7 @@ try:
         handle_websocket_end,
     )
     from nightcrawler.passive_scans.websockets import check_websocket_authentication
+    from nightcrawler.passive_scans.javascript import _check_osv_for_vulnerabilities
     from nightcrawler.active_scans.discovery import scan_content_discovery
     from nightcrawler.active_scans.traversal import scan_directory_traversal
     from nightcrawler import __version__ as nightcrawler_version
@@ -115,6 +116,7 @@ class MainAddon:
         self.crawl_queue: asyncio.Queue = asyncio.Queue()
         self.revisit_queue: asyncio.Queue = asyncio.Queue()
         self.discovery_queue: asyncio.Queue = asyncio.Queue()
+        self.vuln_check_queue: asyncio.Queue = asyncio.Queue()
         self.injected_payloads: dict[str, dict[str, Any]] = {}
         self.revisit_in_progress: set[str] = set()
         self.websocket_hosts_logged: set[str] = set()
@@ -128,6 +130,7 @@ class MainAddon:
         self.scan_worker_task: Optional[asyncio.Task] = None
         self.revisit_worker_task: Optional[asyncio.Task] = None
         self.discovery_worker_task: Optional[asyncio.Task] = None
+        self.vuln_check_worker_task: Optional[asyncio.Task] = None
         self._output_file_error_logged: bool = False
 
         # --- Setup Custom Logger ---
@@ -543,6 +546,7 @@ class MainAddon:
             ("_scan_worker_task", self._scan_worker),
             ("_revisit_worker_task", self._revisit_worker),
             ("_discovery_worker_task", self._discovery_worker),
+            ("_vuln_check_worker_task", self._vuln_check_worker),
         ]
         for task_attr, worker_func in tasks_to_start:
             prev_task = getattr(self, task_attr, None)
@@ -564,6 +568,7 @@ class MainAddon:
             self.crawl_worker_task,
             self.revisit_worker_task,
             self.discovery_worker_task,
+            self.vuln_check_worker_task,
         ]
         for task in worker_tasks:
             if task and not task.done():
@@ -884,6 +889,34 @@ class MainAddon:
                 self.logger.error(traceback.format_exc())
                 if base_dir_url:
                     self.discovery_queue.task_done()
+
+    async def _vuln_check_worker(self):
+        self.logger.info("Internal Vulnerability Check Worker started.")
+        while True:
+            if not self.http_client or not self.semaphore:
+                await asyncio.sleep(0.5)
+                continue
+            lib_details = None
+            try:
+                lib_details = await self.vuln_check_queue.get()
+                async with self.semaphore:
+                    if not self.http_client:
+                        continue
+                    await _check_osv_for_vulnerabilities(
+                        lib_details, self.http_client, self, self.logger
+                    )
+            except asyncio.CancelledError:
+                self.logger.info("Vulnerability check worker cancelled.")
+                break
+            except Exception as e:
+                self.logger.error(f"CRITICAL ERROR in Vuln Check Worker: {e}")
+                self.logger.error(traceback.format_exc())
+            finally:
+                if lib_details:
+                    self.vuln_check_queue.task_done()
+
+
+
 
     async def _heartbeat_task(self):
         while True:

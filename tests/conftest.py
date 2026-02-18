@@ -2,6 +2,7 @@
 # This file provides shared fixtures for all test modules.
 
 import pytest
+import asyncio
 from unittest.mock import MagicMock
 
 try:
@@ -27,6 +28,7 @@ def mock_addon(mocker):
     # Define the methods we expect to call from our scanners
     instance._log_finding = MagicMock(name="_log_finding")
     instance.register_injection = MagicMock(name="register_injection")
+    instance.vuln_check_queue = MagicMock(spec=asyncio.Queue)
 
     # Mock any attributes that the scanners might need
     instance.user_agent = "Nightcrawler-Test-UA/1.0"
