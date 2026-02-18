@@ -10,6 +10,10 @@ and this project adheres to
 
 ### Added
 
+- **Enhanced Sensitive Data Exposure Checks:**
+  - Refactored the info disclosure scanner (`passive_scans/content.py`) to be more modular and extensible using a data-driven approach.
+  - Added new regex patterns for detecting a wider range of sensitive information, including Google API keys, Stripe API keys, Slack tokens, generic API keys, credit card numbers, and Social Security Numbers.
+  - Created a new test suite (`tests/test_passive_content.py`) to validate the new patterns.
 - **Open Redirect Scanner:**
   - Added a new active scanner module (`active_scans/open_redirect.py`) to detect open redirect vulnerabilities.
   - The scanner identifies parameters that look like URLs, injects a test URL, and checks for 3xx redirects to the injected URL.
