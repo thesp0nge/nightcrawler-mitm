@@ -10,6 +10,11 @@ and this project adheres to
 
 ### Added
 
+- **Automated Vulnerable Dependency Checking:**
+  - Enhanced the passive JavaScript scanner (`passive_scans/javascript.py`) to automatically query the OSV.dev API for known vulnerabilities for identified JavaScript libraries and their versions.
+  - Introduced a new asynchronous worker (`_vuln_check_worker`) in `addon.py` to handle these external API calls efficiently without blocking the main event loop.
+  - Updated the relevant tests (`tests/test_passive_javascript.py`) to verify this new functionality.
+
 ### Changed
 
 ### Fixed
