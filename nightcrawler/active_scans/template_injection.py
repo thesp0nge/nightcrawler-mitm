@@ -71,18 +71,19 @@ async def scan_template_injection(
                 )
 
                 # --- Analysis ---
-                # Check if the response contains the result of 7*7, but not the original payload
+                # Check if the response contains the result of 1337*1337 (1787569), but not the original payload
                 if (
                     response.text
-                    and "49" in response.text
+                    and "1787569" in response.text
                     and payload not in response.text
                 ):
                     addon_instance._log_finding(
                         level="ERROR",
                         finding_type="Server-Side Template Injection? (SSTI)",
                         url=url,
-                        detail=f"Payload '{payload}' was evaluated to '49'.",
+                        detail=f"Payload '{payload}' was evaluated to '1787569'.",
                         evidence=payload_info_evidence,
+                        confidence="HIGH",
                     )
                     # Break after first hit for this parameter to reduce noise
                     break

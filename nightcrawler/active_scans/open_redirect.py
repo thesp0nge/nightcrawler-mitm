@@ -87,6 +87,7 @@ async def scan_open_redirect(
                                 "redirected_to": location_header,
                                 "status_code": response.status_code,
                             },
+                            confidence="HIGH",
                         )
 
             except Exception as e:

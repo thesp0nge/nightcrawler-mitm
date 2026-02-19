@@ -57,7 +57,6 @@ async def test_reflected_exact_hit(mock_addon, target_info_get):
 
     # --- CORRECTED ASSERTION: Access positional args via .args tuple ---
     args, kwargs = mock_addon._log_finding.call_args
-    assert kwargs == {}  # No keyword arguments were used
     assert args[0] == "ERROR"  # level
     assert args[1] == "XSS Found? (Reflected - Exact)"  # finding_type
     assert args[2] == target_info_get["url"]  # url
@@ -94,7 +93,6 @@ async def test_reflected_escaped_hit(mock_addon, target_info_get):
     mock_addon._log_finding.assert_called_once()
     # --- CORRECTED ASSERTION: Access positional args via .args tuple ---
     args, kwargs = mock_addon._log_finding.call_args
-    assert kwargs == {}
     assert args[0] == "INFO"  # level
     assert args[1] == "Passive Scan - Escaped Reflection Found"  # finding_type
     # --------------------------------------------------------------------

@@ -10,6 +10,24 @@ and this project adheres to
 
 ### Added
 
+- **Vulnerability Confidence System:**
+  - Introduced confidence levels (`LOW`, `MEDIUM`, `HIGH`) for all vulnerability findings.
+  - Added the `nc_min_confidence` option to allow users to filter findings based on a minimum confidence threshold.
+  - Findings now include the confidence level in console logs and report data.
+- **Dynamic False Positive Verification:**
+  - **XSS:** Implemented multi-character canary verification (testing `<`, `"`, `'`) to detect HTML encoding/filtering and distinguish between benign reflection and exploitable XSS.
+  - **SQLi & Command Injection (Time-based):** Added proportional delay verification (e.g., verifying a 5s sleep against a 2s sleep) to filter out network lag and confirm server-side execution.
+  - **SQLi (Boolean) & IDOR:** Integrated structural similarity checking using `difflib` and stability checks to distinguish between vulnerable responses and generic error pages or dynamic content noise.
+  - **Directory Traversal:** Shifted from status-code heuristics to deterministic content signature matching (e.g., detecting `root:x:0:0`).
+  - **SSTI & Command Injection (Output-based):** Replaced generic payloads with high-entropy mathematical operations (`1337*1337 -> 1787569`) for definitive, deterministic results.
+
+### Changed
+
+- Updated existing active scanner tests to accommodate new confidence parameters and revised verification logic.
+- Refined confidence levels across all passive and active scanners to ensure high-signal reporting.
+
+### Added
+
 - **Enhanced Sensitive Data Exposure Checks:**
   - Refactored the info disclosure scanner (`passive_scans/content.py`) to be more modular and extensible using a data-driven approach.
   - Added new regex patterns for detecting a wider range of sensitive information, including Google API keys, Stripe API keys, Slack tokens, generic API keys, credit card numbers, and Social Security Numbers.

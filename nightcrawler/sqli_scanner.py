@@ -87,6 +87,36 @@ async def scan_sqli_boolean_based(
                     true_response.status_code == false_response.status_code
                     and len(true_response.content) != len(false_response.content)
                 ):
+                    # --- Dynamic Verification: Stability Check ---
+                    # Re-fetch original to see if length is stable or random
+                    try:
+                        stability_resp = await http_client.request(
+                            method,
+                            url,
+                            params=original_params,
+                            data=original_data,
+                            headers=original_headers,
+                        )
+                        # If the length changed compared to original_response (implied by first call), it's unstable
+                        # Since we don't have original_response content here easily, we compare with true/false
+                        # Actually, better to just compare true with original. 
+                        # If (original != true) AND (original != false) AND (true != false), 
+                        # it might just be a random counter/timestamp in the page.
+                        
+                        # Let's do a simpler stability check: fetch original twice.
+                        stability_resp2 = await http_client.request(
+                            method,
+                            url,
+                            params=original_params,
+                            data=original_data,
+                            headers=original_headers,
+                        )
+                        if len(stability_resp.content) != len(stability_resp2.content):
+                            logger.debug(f"[SQLi Verify] Skipping unstable page for {url}")
+                            continue
+                    except Exception:
+                        pass
+
                     payload_info_detail = f"Param: {param_name}, True: '{true_payload}', False: '{false_payload}'"
                     payload_info_evidence = {
                         "param": param_name,
@@ -101,6 +131,7 @@ async def scan_sqli_boolean_based(
                         url=url,
                         detail=payload_info_detail,
                         evidence=payload_info_evidence,
+                        confidence="MEDIUM",
                     )
             except Exception as e:
                 logger.debug(
@@ -203,14 +234,52 @@ async def scan_sqli_basic(
                         url=url,
                         detail=payload_info_detail,
                         evidence=payload_info_evidence,
+                        confidence="HIGH",
                     )
                 if "SLEEP" in payload.upper() and duration > 4.5:
+                    # --- Dynamic Verification ---
+                    # To filter out network lag, we try a shorter sleep
+                    verified_confidence = "MEDIUM"
+                    short_payload = payload.replace("5", "2")
+                    
+                    try:
+                        short_params = current_params.copy()
+                        short_data = current_data.copy()
+                        if is_param_in_query:
+                            short_params[param_name] = short_payload if mode == "replace" else original_value + short_payload
+                        else:
+                            short_data[param_name] = short_payload if mode == "replace" else original_value + short_payload
+                        
+                        v_start = time.time()
+                        await http_client.request(
+                            method,
+                            url.split("?")[0] if is_param_in_query else url,
+                            params=short_params,
+                            data=short_data,
+                            headers=request_headers,
+                            timeout=10.0
+                        )
+                        v_duration = time.time() - v_start
+                        
+                        if 1.5 < v_duration < 3.5:
+                            verified_confidence = "HIGH"
+                            detail_suffix = f" (Verified: 5s payload took {duration:.2f}s, 2s payload took {v_duration:.2f}s)"
+                        else:
+                            # If the 2s sleep also took > 4.5s, it's probably network lag
+                            if v_duration > 4.5:
+                                logger.debug(f"[SQLi Verify] Potential False Positive (Lag): Both 5s and 2s payloads took >4.5s")
+                                continue 
+                            detail_suffix = f" (Time-based check, duration: {duration:.2f}s)"
+                    except Exception:
+                        detail_suffix = f" (Time-based check, duration: {duration:.2f}s)"
+
                     addon_instance._log_finding(
                         level="ERROR",
                         finding_type="SQLi Found? (Time-Based)",
                         url=url,
-                        detail=f"{payload_info_detail}, Duration: {duration:.2f}s",
+                        detail=payload_info_detail + detail_suffix,
                         evidence=payload_info_evidence,
+                        confidence=verified_confidence,
                     )
             except Exception as e:
                 logger.debug(f"[SQLi Scan] Exception: {e} ({payload_info_detail})")

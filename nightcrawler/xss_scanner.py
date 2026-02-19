@@ -79,13 +79,61 @@ async def scan_xss_reflected_basic(
                 )
                 if "html" in response.headers.get("Content-Type", "") and response.text:
                     if payload in response.text:
+                        # --- Dynamic Verification ---
+                        # 1. Check if the payload was already in the original response
+                        try:
+                            orig_resp = await http_client.request(
+                                method, url, params=original_params, data=original_data, headers=request_headers
+                            )
+                            if payload in orig_resp.text:
+                                logger.debug(f"[XSS Verify] Payload already in original page, skipping false positive.")
+                                continue
+                        except Exception:
+                            pass
+
+                        # 2. Verify with a unique canary containing special characters to confirm reflection AND lack of filtering
+                        verified_confidence = "MEDIUM"
+                        # This canary tests for reflection of tags, double quotes, and single quotes
+                        canary_id = random.randint(1000, 9999)
+                        special_canary = f"nc<\"'{canary_id}v" 
+                        
+                        try:
+                            v_params, v_data = original_params.copy(), original_data.copy()
+                            if is_param_in_query:
+                                v_params[param_name] = special_canary
+                            else:
+                                v_data[param_name] = special_canary
+                            
+                            v_resp = await http_client.request(
+                                method,
+                                url.split("?")[0] if is_param_in_query else url,
+                                params=v_params,
+                                data=v_data,
+                                headers=request_headers,
+                            )
+                            
+                            v_text = v_resp.text
+                            if special_canary in v_text:
+                                # The payload was reflected EXACTLY, including < " '
+                                # This is a very strong indicator of XSS
+                                verified_confidence = "HIGH"
+                                logger.debug(f"[XSS Verify] Reflection confirmed with special characters: {special_canary}")
+                            elif f"nc{canary_id}v" in v_text or f"nc&lt;&quot;&#x27;{canary_id}v" in v_text:
+                                # The alphanumeric part is there, but special chars are missing or escaped
+                                logger.debug(f"[XSS Verify] Token found but special characters are filtered/escaped. Declassing.")
+                                verified_confidence = "LOW"
+                                # We continue because it's still a reflection, but not a direct XSS
+                        except Exception as e:
+                            logger.debug(f"[XSS Verify] Error during canary verification: {e}")
+
                         if not exact_finding_logged:
                             addon_instance._log_finding(
                                 "ERROR",
                                 "XSS Found? (Reflected - Exact)",
                                 url,
-                                payload_info_detail,
+                                f"{payload_info_detail} (Reflection Verified: {verified_confidence})",
                                 payload_info_evidence,
+                                confidence=verified_confidence,
                             )
                             exact_finding_logged = True
                             break
@@ -101,6 +149,7 @@ async def scan_xss_reflected_basic(
                                 url,
                                 f"Input reflected but HTML-escaped. {payload_info_detail}",
                                 payload_info_evidence,
+                                confidence="LOW",
                             )
                             escaped_finding_logged = True
             except Exception as e:

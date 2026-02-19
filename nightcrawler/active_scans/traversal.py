@@ -125,25 +125,26 @@ async def scan_directory_traversal(
                     headers=request_headers,
                 )
 
-                # --- NEW LOGIC: Analyze Response Status Code ---
-                status_code = response.status_code
-                if status_code != 404:
-                    level = "ERROR" if 200 <= status_code < 300 else "WARN"
-                    finding_type = "Directory Traversal? (Status Code)"
+                # --- NEW LOGIC: Analyze Response Content (Content Matching) ---
+                # Reduce False Positives by checking for file signatures.
+                response_text = response.text
+                if not response_text:
+                    continue
 
+                if "root:x:0:0" in response_text or "[extensions]" in response_text or "[fonts]" in response_text:
                     addon_instance._log_finding(
-                        level=level,
-                        finding_type=finding_type,
+                        level="ERROR",
+                        finding_type="Directory Traversal Found (Content Match)",
                         url=url,
-                        detail=f"Received status {status_code} for traversal attempt on param '{param_name}'.",
+                        detail=f"Found known file signature in response for param '{param_name}'.",
                         evidence={
                             "param": param_name,
                             "payload": payload,
-                            "response_status": status_code,
+                            "snippet": response_text[:200],
                         },
+                        confidence="HIGH",
                     )
                     logged_findings.add(finding_key)
-                    # We can break after the first non-404 for this parameter to reduce noise
                     break
 
             except Exception as e:

@@ -237,6 +237,12 @@ class MainAddon:
             help="File path for discovery wordlist.",
         )
         loader.add_option(
+            name="nc_min_confidence",
+            typespec=str,
+            default=DEFAULT_MIN_CONFIDENCE,
+            help="Minimum confidence to log a finding (LOW, MEDIUM, HIGH).",
+        )
+        loader.add_option(
             name="nc_debug_mode",
             typespec=bool,
             default=False,
@@ -302,6 +308,13 @@ class MainAddon:
             DEFAULT_DISCOVERY_WORDLIST,
             "Content Discovery",
         )
+        self.min_confidence_str = get_final_value("nc_min_confidence").upper()
+        if self.min_confidence_str not in CONFIDENCE_LEVELS:
+            self.logger.warning(
+                f"Invalid nc_min_confidence: '{self.min_confidence_str}'. Reverting to '{DEFAULT_MIN_CONFIDENCE}'."
+            )
+            self.min_confidence_str = DEFAULT_MIN_CONFIDENCE
+        self.min_confidence = CONFIDENCE_LEVELS[self.min_confidence_str]
 
         self.output_filepath = self._resolve_output_path(
             get_final_value("nc_output_file"), "findings JSONL"
@@ -417,10 +430,18 @@ class MainAddon:
         url: str,
         detail: str,
         evidence: Optional[Dict] = None,
+        confidence: str = "MEDIUM",
     ):
         """Logs finding using our custom logger and collects for reports."""
+        conf_val = CONFIDENCE_LEVELS.get(confidence.upper(), CONFIDENCE_MEDIUM)
+        if conf_val < self.min_confidence:
+            self.logger.debug(
+                f"Skipping finding '{finding_type}' due to low confidence ({confidence} < {self.min_confidence_str})"
+            )
+            return
+
         log_func = getattr(self.logger, level.lower(), self.logger.info)
-        log_message = f"[{finding_type}] {detail} at {url}"
+        log_message = f"[{finding_type}][Confidence: {confidence.upper()}] {detail} at {url}"
         log_func(log_message)
 
         # if flow and level.upper() in ["WARN", "ERROR"]:
@@ -431,6 +452,7 @@ class MainAddon:
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "level": level.upper(),
             "type": finding_type,
+            "confidence": confidence.upper(),
             "url": url,
             "detail": detail,
             "evidence": evidence or {},
@@ -686,6 +708,7 @@ class MainAddon:
                         "injection_url": injection_info.get("url"),
                         "injection_param": injection_info.get("param_name"),
                     },
+                    confidence="HIGH",
                 )
                 self.injected_payloads.pop(probe_id, None)
 

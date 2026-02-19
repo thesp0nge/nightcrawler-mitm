@@ -42,6 +42,7 @@ async def test_open_redirect_found(mock_addon, target_info_get):
             "redirected_to": test_redirect_url,
             "status_code": 302,
         },
+        confidence="HIGH",
     )
 
 

@@ -64,6 +64,7 @@ async def scan_content_discovery(
                     url=target_url,
                     detail=f"Found accessible resource with status code {status_code}.",
                     evidence={"status_code": status_code, "wordlist_item": item},
+                    confidence="LOW",
                 )
 
         except httpx.ConnectError as e:

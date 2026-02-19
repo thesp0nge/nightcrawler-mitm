@@ -88,10 +88,11 @@ DEFAULT_CMD_INJECTION_PAYLOADS: List[str] = [
     "| sleep 5 #",
     "&& sleep 5",
     "; sleep 5",
-    "| whoami",
-    "&& id",
+    "| echo $((1337*1337))",
+    "&& echo $((1337*1337))",
+    "; echo $((1337*1337))",
 ]
-DEFAULT_SSTI_PAYLOADS: List[str] = ["{{7*7}}", "${7*7}", "<%= 7*7 %>", "#{7*7}"]
+DEFAULT_SSTI_PAYLOADS: List[str] = ["{{1337*1337}}", "${1337*1337}", "<%= 1337*1337 %>", "#{1337*1337}"]
 
 # --- Default Worker and Client Settings ---
 DEFAULT_MAX_CONCURRENCY: int = 5
@@ -119,5 +120,18 @@ DEFAULT_DISCOVERY_WORDLIST: Set[str] = {
     "index.php.bak",
     "index.html.old",
 }
+
+# --- Confidence Levels ---
+CONFIDENCE_LOW = 1
+CONFIDENCE_MEDIUM = 2
+CONFIDENCE_HIGH = 3
+
+CONFIDENCE_LEVELS = {
+    "LOW": CONFIDENCE_LOW,
+    "MEDIUM": CONFIDENCE_MEDIUM,
+    "HIGH": CONFIDENCE_HIGH,
+}
+
+DEFAULT_MIN_CONFIDENCE = "MEDIUM"
 
 # End of nightcrawler/config.py

@@ -2,6 +2,7 @@
 # Contains logic for basic IDOR active scanning.
 
 import httpx
+import difflib
 from typing import Dict, Any, List, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -79,24 +80,51 @@ async def scan_idor(
                     # Compare the responses
                     if (
                         original_response.status_code == fuzzed_response.status_code
-                        and len(original_response.content) != len(fuzzed_response.content)
                         and fuzzed_response.status_code == 200
+                        and len(original_response.content) != len(fuzzed_response.content)
                     ):
-                        payload_info_detail = f"Param: {param_name}, Original: {original_value}, Fuzzed: {fuzzed_value}"
-                        payload_info_evidence = {
-                            "param": param_name,
-                            "original_value": original_value,
-                            "fuzzed_value": fuzzed_value,
-                            "original_len": len(original_response.content),
-                            "fuzzed_len": len(fuzzed_response.content),
-                        }
-                        addon_instance._log_finding(
-                            level="WARN",
-                            finding_type="IDOR Found? (Content Length Difference)",
-                            url=url,
-                            detail=payload_info_detail,
-                            evidence=payload_info_evidence,
-                        )
+                        # --- Dynamic Verification: Structure & Stability Check ---
+                        try:
+                            # 1. Stability Check (Is the page dynamic by itself?)
+                            stability_check = await http_client.request(
+                                method, url, params=original_params, data=original_data, headers=original_headers
+                            )
+                            stability_ratio = difflib.SequenceMatcher(None, original_response.text, stability_check.text).ratio()
+                            if stability_ratio < 0.98: # Page changes randomly -> Ignore
+                                logger.debug(f"[IDOR Verify] Skipping unstable page (ratio {stability_ratio:.2f})")
+                                continue
+
+                            # 2. Structure Similarity Check (Is it the same template?)
+                            structure_ratio = difflib.SequenceMatcher(None, original_response.text, fuzzed_response.text).ratio()
+                            
+                            # If ratio is VERY low (< 0.6), it's likely a completely different page (Error/Login) -> FP
+                            # If ratio is VERY high (> 0.999), it's effectively the same page (No IDOR) -> FP
+                            # If ratio is HIGH (0.85 - 0.99), it's same structure but different data -> IDOR Candidate
+                            
+                            if 0.85 < structure_ratio < 0.999:
+                                payload_info_detail = (
+                                    f"Param: {param_name}, Original: {original_value}, Fuzzed: {fuzzed_value}. "
+                                    f"Similarity Ratio: {structure_ratio:.2f}"
+                                )
+                                payload_info_evidence = {
+                                    "param": param_name,
+                                    "original_value": original_value,
+                                    "fuzzed_value": fuzzed_value,
+                                    "similarity_ratio": structure_ratio,
+                                }
+                                addon_instance._log_finding(
+                                    level="WARN",
+                                    finding_type="IDOR Found? (Content Length Difference)",
+                                    url=url,
+                                    detail=payload_info_detail,
+                                    evidence=payload_info_evidence,
+                                    confidence="MEDIUM",
+                                )
+                            else:
+                                logger.debug(f"[IDOR Verify] Ratio {structure_ratio:.2f} deemed not suspicious.")
+
+                        except Exception:
+                            pass
 
                 except Exception as e:
                     logger.debug(f"[IDOR Scan] Exception: {e} ({param_name})")

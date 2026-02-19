@@ -73,6 +73,7 @@ async def _check_osv_for_vulnerabilities(
                             "vulnerability_id": vuln_id,
                             "script_url": lib_details.get("script_url"),
                         },
+                        confidence="HIGH",
                     )
     except Exception as e:
         logger.error(f"[OSV Check] Error querying OSV API for {package_name}@{version}: {e}")
@@ -115,6 +116,7 @@ def check_javascript_libraries(
                                 url=url,
                                 detail=f"Identified Library: {lib_name} version {version}",
                                 evidence={"script_url": src, "library": lib_name, "version": version},
+                                confidence="LOW",
                             )
                             found_libraries.add(lib_key)
 

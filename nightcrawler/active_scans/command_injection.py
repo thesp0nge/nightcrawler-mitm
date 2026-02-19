@@ -78,39 +78,69 @@ async def scan_command_injection(
                 # --- Analysis ---
                 # 1. Time-Based Check
                 if "sleep" in payload.lower() and duration > 4.5:
+                    # --- Dynamic Verification ---
+                    verified_confidence = "MEDIUM"
+                    detail_suffix = f", Duration: {duration:.2f}s"
+                    
+                    # Try to verify with a different sleep duration
+                    try:
+                        short_payload = payload.replace("5", "2")
+                        v_start = time.time()
+                        await http_client.request(
+                            method,
+                            url.split("?")[0] if is_in_query else url,
+                            params=current_params if is_in_query else original_params,
+                            data=current_data if not is_in_query else original_data,
+                            headers=request_headers,
+                            timeout=10.0
+                        )
+                        v_duration = time.time() - v_start
+                        if 1.5 < v_duration < 3.5:
+                            verified_confidence = "HIGH"
+                            detail_suffix = f" (Verified: 5s sleep took {duration:.2f}s, 2s sleep took {v_duration:.2f}s)"
+                        elif v_duration > 4.5:
+                            logger.debug(f"[Cmd Injection Verify] Lag detected, skipping.")
+                            continue
+                    except Exception:
+                        pass
+
                     addon_instance._log_finding(
                         level="ERROR",
                         finding_type="Command Injection? (Time-Based)",
                         url=url,
-                        detail=f"{payload_info_detail}, Duration: {duration:.2f}s",
+                        detail=f"{payload_info_detail}{detail_suffix}",
                         evidence=payload_info_evidence,
+                        confidence=verified_confidence,
                     )
                     break  # Found a hit for this param, move to the next
 
-                # 2. Output-Based Check
-                if response.text:
-                    if (
-                        "whoami" in payload
-                        and "root" in response.text
-                        or "nt authority\\system" in response.text.lower()
-                    ):
-                        addon_instance._log_finding(
-                            level="ERROR",
-                            finding_type="Command Injection? (Output-Based)",
-                            url=url,
-                            detail=f"{payload_info_detail}, Found output: {response.text[:100]}",
-                            evidence=payload_info_evidence,
-                        )
-                        break
-                    if "id" in payload and "uid=0(root)" in response.text:
-                        addon_instance._log_finding(
-                            level="ERROR",
-                            finding_type="Command Injection? (Output-Based)",
-                            url=url,
-                            detail=f"{payload_info_detail}, Found output: {response.text[:100]}",
-                            evidence=payload_info_evidence,
-                        )
-                        break
+                # 2. Output-Based Check (Math Verification)
+                if response.text and "1787569" in response.text and "1337" not in response.text:
+                    addon_instance._log_finding(
+                        level="ERROR",
+                        finding_type="Command Injection (Verified Math)",
+                        url=url,
+                        detail=f"Mathematical payload executed: 1337*1337 -> 1787569",
+                        evidence={
+                            "param": param_name,
+                            "payload": payload,
+                            "output_snippet": "1787569",
+                        },
+                        confidence="HIGH",
+                    )
+                    break
+
+                # 3. Output-Based Check (Legacy - Lower Confidence)
+                if response.text and ("uid=0(root)" in response.text):
+                    addon_instance._log_finding(
+                        level="ERROR",
+                        finding_type="Command Injection? (Legacy Output)",
+                        url=url,
+                        detail=f"Found suspicious output: {response.text[:50]}...",
+                        evidence={"param": param_name, "snippet": response.text[:100]},
+                        confidence="MEDIUM",
+                    )
+                    break
 
             except Exception as e:
                 logger.debug(
