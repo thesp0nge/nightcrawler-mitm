@@ -4,8 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nightcrawler-mitm"
-# The version is now hardcoded again for stability
-version = "0.11.0"
+dynamic = ["version"]
 description = "A mitmproxy addon for background passive analysis, crawling, and basic active scanning, designed as a security researcher's sidekick."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -37,7 +36,8 @@ dependencies = [
 [project.scripts]
 nightcrawler = "nightcrawler.runner:main"
 
-# The [tool.setuptools.dynamic] section has been completely removed.
+[tool.setuptools.dynamic]
+version = {attr = "nightcrawler.__version__"}
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

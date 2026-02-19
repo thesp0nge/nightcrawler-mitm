@@ -2,7 +2,7 @@
 
 ![alt text](https://github.com/thesp0nge/nightcrawler-mitm/blob/main/logo.png?raw=true)
 
-Version: 0.10.0
+Version: 0.12.0
 
 A mitmproxy addon for background passive analysis, crawling, and basic active
 scanning, designed as a security researcher's sidekick.
