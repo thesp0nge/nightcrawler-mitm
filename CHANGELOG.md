@@ -15,7 +15,7 @@ and this project adheres to
   - Added the `nc_min_confidence` option to allow users to filter findings based on a minimum confidence threshold.
   - Findings now include the confidence level in console logs and report data.
 - **Dynamic False Positive Verification:**
-  - **XSS:** Implemented multi-character canary verification (testing `<`, `"`, `'`) to detect HTML encoding/filtering and distinguish between benign reflection and exploitable XSS.
+  - **XSS:** Implemented DOM-aware verification using `BeautifulSoup` to distinguish between harmless text reflection and executable injection. The scanner now verifies if injected tags are actually parsed as elements or if `javascript:` URIs land in executable attributes (e.g., `href`, `onclick`).
   - **SQLi & Command Injection (Time-based):** Added proportional delay verification (e.g., verifying a 5s sleep against a 2s sleep) to filter out network lag and confirm server-side execution.
   - **SQLi (Boolean) & IDOR:** Integrated structural similarity checking using `difflib` and stability checks to distinguish between vulnerable responses and generic error pages or dynamic content noise.
   - **Directory Traversal:** Shifted from status-code heuristics to deterministic content signature matching (e.g., detecting `root:x:0:0`).

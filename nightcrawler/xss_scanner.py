@@ -7,6 +7,7 @@ import random
 import html
 import sys
 from typing import Dict, Any, List, TYPE_CHECKING
+from bs4 import BeautifulSoup
 
 if TYPE_CHECKING:
     from nightcrawler.addon import MainAddon
@@ -85,30 +86,31 @@ async def scan_xss_reflected_basic(
                 )
                 if "html" in response.headers.get("Content-Type", "") and response.text:
                     if payload in response.text:
-                        # --- Dynamic Verification ---
-                        # 1. Check if the payload was already in the original response
+                        # --- Dynamic Verification: Context & DOM Analysis ---
+                        # 1. Pre-existence Check
                         try:
                             orig_resp = await http_client.request(
                                 method, url, params=original_params, data=original_data, headers=request_headers
                             )
                             if payload in orig_resp.text:
-                                logger.debug(f"[XSS Verify] Payload already in original page, skipping false positive.")
+                                logger.debug(f"[XSS Verify] Payload already in original page, skipping.")
                                 continue
                         except Exception:
                             pass
 
-                        # 2. Verify with a unique canary containing special characters to confirm reflection AND lack of filtering
+                        # 2. DOM-Aware Verification
                         verified_confidence = "MEDIUM"
-                        # This canary tests for reflection of tags, double quotes, and single quotes
                         canary_id = random.randint(1000, 9999)
-                        special_canary = f"nc<\"'{canary_id}v" 
+                        # We use a unique tag name as a canary for tag-injection detection
+                        tag_name = f"ncv{canary_id}"
+                        canary_tag = f"<{tag_name}>"
                         
                         try:
                             v_params, v_data = original_params.copy(), original_data.copy()
                             if is_param_in_query:
-                                v_params[param_name] = special_canary
+                                v_params[param_name] = canary_tag
                             else:
-                                v_data[param_name] = special_canary
+                                v_data[param_name] = canary_tag
                             
                             v_resp = await http_client.request(
                                 method,
@@ -118,19 +120,32 @@ async def scan_xss_reflected_basic(
                                 headers=request_headers,
                             )
                             
-                            v_text = v_resp.text
-                            if special_canary in v_text:
-                                # The payload was reflected EXACTLY, including < " '
-                                # This is a very strong indicator of XSS
+                            soup = BeautifulSoup(v_resp.text, "html.parser")
+                            
+                            # A. TAG INJECTION: Check if the custom tag was actually parsed as an element
+                            if soup.find(tag_name):
                                 verified_confidence = "HIGH"
-                                logger.debug(f"[XSS Verify] Reflection confirmed with special characters: {special_canary}")
-                            elif f"nc{canary_id}v" in v_text or f"nc&lt;&quot;&#x27;{canary_id}v" in v_text:
-                                # The alphanumeric part is there, but special chars are missing or escaped
-                                logger.debug(f"[XSS Verify] Token found but special characters are filtered/escaped. Declassing.")
-                                verified_confidence = "LOW"
-                                # We continue because it's still a reflection, but not a direct XSS
+                                logger.debug(f"[XSS Verify] Tag injection confirmed: <{tag_name}> exists in DOM.")
+                            
+                            # B. ATTRIBUTE INJECTION (e.g. javascript:...)
+                            # If the original payload was a URI, check if it's in a sensitive attribute
+                            elif payload.lower().startswith("javascript:"):
+                                is_executable_attr = False
+                                for attr_name in ["href", "src", "action", "formaction", "onclick", "onmouseover"]:
+                                    if soup.find(attrs={attr_name: payload}):
+                                        is_executable_attr = True
+                                        break
+                                
+                                if is_executable_attr:
+                                    verified_confidence = "HIGH"
+                                    logger.debug(f"[XSS Verify] URI injection confirmed in executable attribute.")
+                                else:
+                                    # Harmless reflection (like in your reported div example)
+                                    logger.debug(f"[XSS Verify] Harmful-looking string found in harmless context. Skipping.")
+                                    continue # This solves the reported False Positive
+
                         except Exception as e:
-                            logger.debug(f"[XSS Verify] Error during canary verification: {e}")
+                            logger.debug(f"[XSS Verify] Error during DOM verification: {e}")
 
                         if not exact_finding_logged:
                             addon_instance._log_finding(
