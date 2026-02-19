@@ -28,6 +28,12 @@ and this project adheres to
 
 ### Added
 
+- **Automated POC Generation:**
+  - Implemented automatic `curl` command generation for all detected vulnerabilities to facilitate rapid reproduction.
+  - Included the Proof of Concept (POC) commands in both terminal logs and findings reports.
+- **Improved Test Coverage for Critical Scanners:**
+  - Added a dedicated test suite for the SQLi scanner (`tests/test_sqli_scanner.py`), covering error-based, boolean-based (with stability checks), and time-based (with dynamic verification) detection.
+  - Added a dedicated test suite for the IDOR scanner (`tests/test_idor_scanner.py`), validating structural similarity checking and stability logic.
 - **Enhanced Sensitive Data Exposure Checks:**
   - Refactored the info disclosure scanner (`passive_scans/content.py`) to be more modular and extensible using a data-driven approach.
   - Added new regex patterns for detecting a wider range of sensitive information, including Google API keys, Stripe API keys, Slack tokens, generic API keys, credit card numbers, and Social Security Numbers.

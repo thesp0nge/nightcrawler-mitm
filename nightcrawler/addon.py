@@ -440,13 +440,29 @@ class MainAddon:
             )
             return
 
+        # --- Automated Evidence: CURL Generation ---
+        curl_cmd = ""
+        try:
+            # Simple curl generator for GET/POST
+            curl_parts = [f"curl -i -k -X GET"]
+            if evidence and "param" in evidence and "payload" in evidence:
+                # If we have specific injection evidence, try to rebuild the poc
+                poc_url = url
+                param = evidence["param"]
+                payload = evidence["payload"]
+                if "?" in poc_url:
+                    poc_url = poc_url.replace(f"{param}=", f"{param}={payload}") # Simple replace for POC
+                curl_cmd = f"curl -i -k '{poc_url}'"
+            else:
+                curl_cmd = f"curl -i -k '{url}'"
+        except Exception:
+            curl_cmd = "N/A"
+
         log_func = getattr(self.logger, level.lower(), self.logger.info)
         log_message = f"[{finding_type}][Confidence: {confidence.upper()}] {detail} at {url}"
         log_func(log_message)
-
-        # if flow and level.upper() in ["WARN", "ERROR"]:
-        # emoji = "⚠️" if level.upper() == "WARN" else "🚨"
-        # flow.comment = f"{flow.comment + ' | ' if flow.comment else ''}{emoji} {finding_type}: {detail}"
+        if curl_cmd != "N/A":
+            self.logger.info(f"    [POC] {curl_cmd}")
 
         finding_data = {
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -456,6 +472,7 @@ class MainAddon:
             "url": url,
             "detail": detail,
             "evidence": evidence or {},
+            "poc": curl_cmd
         }
         if self.html_report_filepath:
             self.report_findings.append(finding_data)
