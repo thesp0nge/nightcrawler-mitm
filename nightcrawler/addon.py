@@ -231,6 +231,12 @@ class MainAddon:
             help="Enable detailed WebSocket message logging.",
         )
         loader.add_option(
+            name="nc_smart_targeting",
+            typespec=bool,
+            default=False,
+            help="Skip unlikely parameters (e.g. numeric for XSS) to speed up scans.",
+        )
+        loader.add_option(
             name="nc_discovery_wordlist",
             typespec=str,
             default="",
@@ -287,6 +293,7 @@ class MainAddon:
         self.user_agent = get_final_value("nc_user_agent")
         self.payload_max_age = max(60, int(get_final_value("nc_payload_max_age")))
         self.inspect_websocket = bool(get_final_value("nc_inspect_websocket"))
+        self.smart_targeting = bool(get_final_value("nc_smart_targeting"))
         self.xss_stored_prefix = get_final_value("nc_xss_stored_prefix")
         self.xss_stored_format = get_final_value("nc_xss_stored_format")
         if "{probe_id}" not in self.xss_stored_format:

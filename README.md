@@ -24,13 +24,26 @@ scanning, designed as a security researcher's sidekick.
     without a session cookie.
   - Basic Info Disclosure checks (Comments, basic keyword context - Note:
     API/Key/Secret checks temporarily disabled).
-- Crawls the target application to discover new endpoints.
-- Runs basic active scans for low-hanging fruit:
-  - Reflected XSS (basic reflection check).
-  - SQL Injection (basic error/time-based checks).
-  - Stored XSS (basic probe injection and revisit check).
-- Configurable target scope, concurrency, payloads, and output via command-line
-  options.
+- **Vulnerability Confidence System:**
+  - Assigns confidence levels (`LOW`, `MEDIUM`, `HIGH`) to all findings.
+  - Implements dynamic verification (e.g., math checks, canary tokens, stability
+    analysis) to minimize false positives.
+  - Filter findings by minimum confidence using `nc_min_confidence`.
+- **Smart Targeting:** Optionally skip unlikely parameters (e.g., numeric IDs for
+  XSS) to drastically speed up active scans using `nc_smart_targeting`.
+- **Crawls the target application** to discover new endpoints.
+- **Runs advanced active scans** for:
+  - Reflected XSS (with canary token verification).
+  - SQL Injection (error-based, boolean-based with stability check, and
+    time-based with proportional delay verification).
+  - Stored XSS (with probe tracking).
+  - OS Command Injection (output-based with math verification and time-based).
+  - Server-Side Template Injection (SSTI) (math-based verification).
+  - Open Redirect & Directory Traversal (content-signature based).
+- **Automated POC Generation:** Logs a ready-to-use `curl` command for every
+  vulnerability found to facilitate reproduction.
+- **Configurable target scope**, concurrency, payloads, and output via
+  command-line options.
 - Logs findings to console and optionally to a JSONL file.
 
 ## INSTALLATION
@@ -169,6 +182,12 @@ nc_payload_max_age: 7200 # Track payloads for 2 hours
 
 # WebSocket inspection
 nc_inspect_websocket: false
+
+# Minimum confidence level to log (LOW, MEDIUM, HIGH)
+nc_min_confidence: MEDIUM
+
+# Speed up scans by skipping unlikely targets (e.g. numeric params for XSS)
+nc_smart_targeting: false
 ```
 
 ### Command-Line Overrides (--set)

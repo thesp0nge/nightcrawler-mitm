@@ -49,6 +49,12 @@ async def scan_xss_reflected_basic(
             original_value = original_value if original_value is not None else ""
             # --- END CORRECTION ---
 
+            # --- Smart Targeting: Skip numeric parameters for XSS ---
+            if addon_instance.smart_targeting and original_value and str(original_value).isdigit():
+                logger.debug(f"[XSS Smart Target] Skipping purely numeric param '{param_name}' for Reflected XSS.")
+                continue # Skip this parameter
+            # --------------------------------------------------------
+
             # For reflected XSS, we replace the value entirely, not append
             if is_param_in_query:
                 current_params[param_name] = payload
@@ -194,6 +200,12 @@ async def scan_xss_stored_inject(
         original_value = value[0] if isinstance(value, list) else value
         original_value = original_value if original_value is not None else ""
         # --- END CORRECTION ---
+
+        # --- Smart Targeting: Skip numeric parameters for XSS ---
+        if addon_instance.smart_targeting and original_value and str(original_value).isdigit():
+            logger.debug(f"[XSS Smart Target] Skipping numeric param '{param_name}' for Stored XSS injection.")
+            continue
+        # --------------------------------------------------------
 
         injected_value = original_value + unique_payload
         if is_param_in_query:

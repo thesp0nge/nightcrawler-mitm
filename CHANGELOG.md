@@ -31,6 +31,8 @@ and this project adheres to
 - **Automated POC Generation:**
   - Implemented automatic `curl` command generation for all detected vulnerabilities to facilitate rapid reproduction.
   - Included the Proof of Concept (POC) commands in both terminal logs and findings reports.
+- **XSS Smart Targeting:**
+  - Added an optional `nc_smart_targeting` flag to drastically speed up scans by skipping unlikely targets (e.g., purely numeric parameters) for XSS scanning.
 - **Improved Test Coverage for Critical Scanners:**
   - Added a dedicated test suite for the SQLi scanner (`tests/test_sqli_scanner.py`), covering error-based, boolean-based (with stability checks), and time-based (with dynamic verification) detection.
   - Added a dedicated test suite for the IDOR scanner (`tests/test_idor_scanner.py`), validating structural similarity checking and stability logic.
