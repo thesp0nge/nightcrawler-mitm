@@ -7,11 +7,13 @@ from unittest.mock import MagicMock
 
 try:
     from nightcrawler.addon import MainAddon
+    from nightcrawler.config import CONFIDENCE_LOW
 except ImportError:
     # Define a dummy class if addon cannot be imported.
     # This allows test collection to succeed even if there are import issues in the main code.
     class MainAddon:
         pass
+    CONFIDENCE_LOW = 0
 
 
 # --- Mocking Fixture ---
@@ -33,6 +35,9 @@ def mock_addon(mocker):
     # Mock any attributes that the scanners might need
     instance.user_agent = "Nightcrawler-Test-UA/1.0"
     instance.xss_stored_format = ""  # Provide a default for tests
+    instance.xss_stored_prefix = "ncXSS"
+    instance.smart_targeting = False
+    instance.min_confidence = CONFIDENCE_LOW
 
     return instance
 

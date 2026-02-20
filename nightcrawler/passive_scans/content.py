@@ -2,15 +2,13 @@
 # Passive checks related to the content/body of HTTP responses.
 
 import re
-from mitmproxy import http, ctx
+from mitmproxy import http
 from typing import Optional, List, Dict, Any, TYPE_CHECKING
+from nightcrawler.passive_scans.base import PassiveScanner
 
 if TYPE_CHECKING:
-    # To avoid circular import for type hinting only
     from nightcrawler.addon import MainAddon
 
-# Define a list of tuples, where each tuple contains:
-# (Finding Type, Regex Pattern, Severity Level)
 SENSITIVE_DATA_PATTERNS = [
     ("Potential Private Key", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |PGP |[A-Z]+ )?PRIVATE KEY-----"), "ERROR"),
     ("Potential AWS Key ID", re.compile(r"\b(A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}\b"), "WARN"),
@@ -22,35 +20,31 @@ SENSITIVE_DATA_PATTERNS = [
     ("Social Security Number", re.compile(r"\b\d{3}-\d{2}-\d{4}\b"), "WARN"),
 ]
 
-def check_info_disclosure(
-    response: http.Response, url: str, addon_instance: "MainAddon", logger: Any
-):
-    """
-    Checks response body for sensitive keywords, potential API keys,
-    and private key headers. Logs findings using the provided addon_instance.
-    """
-    response_text = response.text
-    if not response_text:
-        return
+class ContentScanner(PassiveScanner):
+    name: str = "Content"
 
-    max_size_to_check = 2 * 1024 * 1024  # 2MB limit
-    if response.content and len(response.content) > max_size_to_check:
-        logger.debug(f"[Content Check] Response body from {url} too large, skipping.")
-        return
+    async def scan_response(self, response: http.Response, url: str):
+        """
+        Checks response body for sensitive patterns.
+        """
+        response_text = response.text
+        if not response_text:
+            return
 
-    for finding_type, pattern, level in SENSITIVE_DATA_PATTERNS:
-        try:
-            matches = pattern.finditer(response_text)
-            for match in matches:
-                addon_instance._log_finding(
-                    level=level,
-                    finding_type=f"Passive Scan - Info Disclosure ({finding_type})",
-                    url=url,
-                    detail=f"Found a potential '{finding_type}' pattern.",
-                    evidence={"match": match.group(0)[:100]}, # Log a snippet
-                )
-        except Exception as e:
-            logger.debug(f"Regex error during {finding_type} check at {url}: {e}")
+        max_size_to_check = 2 * 1024 * 1024
+        if response.content and len(response.content) > max_size_to_check:
+            return
 
-
-# End of nightcrawler/passive_scans/content.py
+        for finding_type, pattern, level in SENSITIVE_DATA_PATTERNS:
+            try:
+                matches = pattern.finditer(response_text)
+                for match in matches:
+                    self.addon_instance._log_finding(
+                        level=level,
+                        finding_type=f"Passive Scan - Info Disclosure ({finding_type})",
+                        url=url,
+                        detail=f"Found a potential '{finding_type}' pattern.",
+                        evidence={"match": match.group(0)[:100]},
+                    )
+            except Exception as e:
+                self.logger.debug(f"Regex error during {finding_type} check at {url}: {e}")

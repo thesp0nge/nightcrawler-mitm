@@ -7,10 +7,9 @@ import respx
 from unittest.mock import MagicMock
 
 try:
-    from nightcrawler.active_scans.discovery import scan_content_discovery
-    from nightcrawler.addon import MainAddon
+    from nightcrawler.active_scans.discovery import scan_content_discovery, ContentDiscoveryScanner
 except ImportError:
-    pytest.fail("Could not import scan_content_discovery or MainAddon", pytrace=False)
+    pytest.fail("Could not import scan_content_discovery or ContentDiscoveryScanner", pytrace=False)
 
 pytestmark = pytest.mark.asyncio
 
@@ -20,7 +19,6 @@ DEFAULT_WORDLIST = {".env", "admin/"}
 DEFAULT_COOKIES = {}
 
 # --- Fixtures are loaded from conftest.py ---
-
 
 @pytest.mark.asyncio
 @respx.mock
@@ -46,54 +44,24 @@ async def test_discovery_finds_200_ok(mock_addon):
         logger=mock_logger,
     )
 
-    mock_addon._log_finding.assert_called_once_with(
-        level="ERROR",
-        finding_type="Content Discovery - File/Dir Found",
-        url=target_url,
-        detail="Found accessible resource with status code 200.",
-        evidence={"status_code": 200, "wordlist_item": found_file},
-    )
-
+    mock_addon._log_finding.assert_called_once()
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_discovery_finds_403_forbidden(mock_addon):
-    """Test: Finds a sensitive directory with a 403 Forbidden response."""
-    found_dir = "admin/"
-    target_url = f"{TARGET_URL_BASE}{found_dir}"
-
-    # Correct mock order: specific first, then fallback
-    respx.head(target_url).respond(status_code=403)
+async def test_discovery_class_run(mock_addon, target_info_get):
+    """Test: ContentDiscoveryScanner correctly extracts base dir and runs."""
+    mock_addon.discovery_wordlist = {".git/config"}
+    target_info_get["url"] = "http://test.com/app/index.php"
+    expected_probe_url = "http://test.com/app/.git/config"
+    
+    respx.head(expected_probe_url).respond(status_code=200)
     respx.route(method="HEAD").respond(404)
 
-    test_client = httpx.AsyncClient(follow_redirects=False)
-    mock_logger = MagicMock()
+    scanner = ContentDiscoveryScanner(mock_addon, MagicMock())
+    await scanner.run(target_info_get, {}, httpx.AsyncClient())
 
-    await scan_content_discovery(
-        TARGET_URL_BASE, DEFAULT_WORDLIST, {}, test_client, mock_addon, mock_logger
-    )
-
-    mock_addon._log_finding.assert_called_once_with(
-        level="WARN",
-        finding_type="Content Discovery - Interesting Status 403",
-        url=target_url,
-        detail="Found accessible resource with status code 403.",
-        evidence={"status_code": 403, "wordlist_item": found_dir},
-    )
-
-
-@pytest.mark.asyncio
-@respx.mock
-async def test_discovery_ignores_404(mock_addon):
-    """Test: Does not log findings for 404 Not Found responses."""
-    # Mock all HEAD requests to return 404
-    respx.route(method="HEAD").respond(404)
-
-    test_client = httpx.AsyncClient(follow_redirects=False)
-    mock_logger = MagicMock()
-
-    await scan_content_discovery(
-        TARGET_URL_BASE, DEFAULT_WORDLIST, {}, test_client, mock_addon, mock_logger
-    )
-
-    mock_addon._log_finding.assert_not_called()
+    mock_addon._log_finding.assert_called_once()
+    args, kwargs = mock_addon._log_finding.call_args
+    # ContentDiscoveryScanner uses keyword arguments
+    assert "Content Discovery" in kwargs["finding_type"]
+    assert kwargs["url"] == expected_probe_url

@@ -11,66 +11,125 @@ and this project adheres to
 ### Added
 
 - **Vulnerability Confidence System:**
-  - Introduced confidence levels (`LOW`, `MEDIUM`, `HIGH`) for all vulnerability findings.
-  - Added the `nc_min_confidence` option to allow users to filter findings based on a minimum confidence threshold.
+  - Introduced confidence levels (`LOW`, `MEDIUM`, `HIGH`) for all vulnerability
+    findings.
+  - Added the `nc_min_confidence` option to allow users to filter findings based
+    on a minimum confidence threshold.
   - Findings now include the confidence level in console logs and report data.
 - **Dynamic False Positive Verification:**
-  - **XSS:** Implemented DOM-aware verification using `BeautifulSoup` to distinguish between harmless text reflection and executable injection. The scanner now verifies if injected tags are actually parsed as elements or if `javascript:` URIs land in executable attributes (e.g., `href`, `onclick`).
-  - **SQLi & Command Injection (Time-based):** Added proportional delay verification (e.g., verifying a 5s sleep against a 2s sleep) to filter out network lag and confirm server-side execution.
-  - **SQLi (Boolean) & IDOR:** Integrated structural similarity checking using `difflib` and stability checks to distinguish between vulnerable responses and generic error pages or dynamic content noise.
-  - **Directory Traversal:** Shifted from status-code heuristics to deterministic content signature matching (e.g., detecting `root:x:0:0`).
-  - **SSTI & Command Injection (Output-based):** Replaced generic payloads with high-entropy mathematical operations (`1337*1337 -> 1787569`) for definitive, deterministic results.
 
-### Changed
-
-- Updated existing active scanner tests to accommodate new confidence parameters and revised verification logic.
-- Refined confidence levels across all passive and active scanners to ensure high-signal reporting.
-
-### Added
+  - **XSS:** Implemented DOM-aware verification using `BeautifulSoup` to
+    distinguish between harmless text reflection and executable injection. The
+    scanner now verifies if injected tags are actually parsed as elements or if
+    `javascript:` URIs land in executable attributes (e.g., `href`, `onclick`).
+  - **SQLi & Command Injection (Time-based):** Added proportional delay
+    verification (e.g., verifying a 5s sleep against a 2s sleep) to filter out
+    network lag and confirm server-side execution.
+  - **SQLi (Boolean) & IDOR:** Integrated structural similarity checking using
+    `difflib` and stability checks to distinguish between vulnerable responses
+    and generic error pages or dynamic content noise.
+  - **Directory Traversal:** Shifted from status-code heuristics to
+    deterministic content signature matching (e.g., detecting `root:x:0:0`).
+  - **SSTI & Command Injection (Output-based):** Replaced generic payloads with
+    high-entropy mathematical operations (`1337*1337 -> 1787569`) for
+    definitive, deterministic results.
 
 - **Automated POC Generation:**
-  - Implemented automatic `curl` command generation for all detected vulnerabilities to facilitate rapid reproduction.
-  - Included the Proof of Concept (POC) commands in both terminal logs and findings reports.
+  - Implemented automatic `curl` command generation for all detected
+    vulnerabilities to facilitate rapid reproduction.
+  - Included the Proof of Concept (POC) commands in both terminal logs and
+    findings reports.
 - **XSS Smart Targeting:**
-  - Added an optional `nc_smart_targeting` flag to drastically speed up scans by skipping unlikely targets (e.g., purely numeric parameters) for XSS scanning.
+  - Added an optional `nc_smart_targeting` flag to drastically speed up scans by
+    skipping unlikely targets (e.g., purely numeric parameters) for XSS
+    scanning.
 - **Improved Test Coverage for Critical Scanners:**
-  - Added a dedicated test suite for the SQLi scanner (`tests/test_sqli_scanner.py`), covering error-based, boolean-based (with stability checks), and time-based (with dynamic verification) detection.
-  - Added a dedicated test suite for the IDOR scanner (`tests/test_idor_scanner.py`), validating structural similarity checking and stability logic.
+  - Added a dedicated test suite for the SQLi scanner
+    (`tests/test_sqli_scanner.py`), covering error-based, boolean-based (with
+    stability checks), and time-based (with dynamic verification) detection.
+  - Added a dedicated test suite for the IDOR scanner
+    (`tests/test_idor_scanner.py`), validating structural similarity checking
+    and stability logic.
 - **Enhanced Sensitive Data Exposure Checks:**
-  - Refactored the info disclosure scanner (`passive_scans/content.py`) to be more modular and extensible using a data-driven approach.
-  - Added new regex patterns for detecting a wider range of sensitive information, including Google API keys, Stripe API keys, Slack tokens, generic API keys, credit card numbers, and Social Security Numbers.
-  - Created a new test suite (`tests/test_passive_content.py`) to validate the new patterns.
+  - Refactored the info disclosure scanner (`passive_scans/content.py`) to be
+    more modular and extensible using a data-driven approach.
+  - Added new regex patterns for detecting a wider range of sensitive
+    information, including Google API keys, Stripe API keys, Slack tokens,
+    generic API keys, credit card numbers, and Social Security Numbers.
+  - Created a new test suite (`tests/test_passive_content.py`) to validate the
+    new patterns.
 - **Open Redirect Scanner:**
-  - Added a new active scanner module (`active_scans/open_redirect.py`) to detect open redirect vulnerabilities.
-  - The scanner identifies parameters that look like URLs, injects a test URL, and checks for 3xx redirects to the injected URL.
+  - Added a new active scanner module (`active_scans/open_redirect.py`) to
+    detect open redirect vulnerabilities.
+  - The scanner identifies parameters that look like URLs, injects a test URL,
+    and checks for 3xx redirects to the injected URL.
   - Integrated the scanner into the main active scan worker in `addon.py`.
-  - Added comprehensive tests (`tests/test_active_open_redirect.py`) to verify its functionality.
+  - Added comprehensive tests (`tests/test_active_open_redirect.py`) to verify
+    its functionality.
 - **Automated Vulnerable Dependency Checking:**
-  - Enhanced the passive JavaScript scanner (`passive_scans/javascript.py`) to automatically query the OSV.dev API for known vulnerabilities for identified JavaScript libraries and their versions.
-  - Introduced a new asynchronous worker (`_vuln_check_worker`) in `addon.py` to handle these external API calls efficiently without blocking the main event loop.
-  - Updated the relevant tests (`tests/test_passive_javascript.py`) to verify this new functionality.
+  - Enhanced the passive JavaScript scanner (`passive_scans/javascript.py`) to
+    automatically query the OSV.dev API for known vulnerabilities for identified
+    JavaScript libraries and their versions.
+  - Introduced a new asynchronous worker (`_vuln_check_worker`) in `addon.py` to
+    handle these external API calls efficiently without blocking the main event
+    loop.
+  - Updated the relevant tests (`tests/test_passive_javascript.py`) to verify
+    this new functionality.
 
 ### Changed
 
+- **Architectural Refactor:**
+  - Moved all active scanners (`sqli`, `xss`, `idor`) to
+    `nightcrawler/active_scans/` for better organization.
+  - Implemented a `PassiveScanner` and `ActiveScanner` base class system.
+  - Introduced dynamic scanner discovery in `addon.py`, removing hardcoded
+    scanner calls and enabling modular extensibility.
+- **Test Suite Improvements:**
+
+  - Refactored all active and passive scanner tests to use the new class-based
+    registry system.
+  - Standardized test assertions to correctly handle keyword arguments in
+    logging.
+  - Improved `respx` mocking strategies for more robust and accurate
+    vulnerability detection testing.
+
+- Updated existing active scanner tests to accommodate new confidence parameters
+  and revised verification logic.
+- Refined confidence levels across all passive and active scanners to ensure
+  high-signal reporting.
+
 ### Fixed
+
+- Fixed an issue where the boolean SQLi scanner was skipped if the custom
+  payload list was empty.
+- Fixed a URL handling bug in `httpx` requests within active scanners that
+  caused query parameters to be improperly processed during tests.
+- Resolved various `AttributeError` and `IndexError` issues in the test suite by
+  correcting mock configurations and assertion logic.
 
 ## [0.11.0] - 2026-02-18
 
 ### Added
 
-- **IDOR Scanner:** Added a new active scanner module (`nightcrawler/idor_scanner.py`) to detect Insecure Direct Object References by manipulating numeric parameters.
+- **IDOR Scanner:** Added a new active scanner module
+  (`nightcrawler/idor_scanner.py`) to detect Insecure Direct Object References
+  by manipulating numeric parameters.
 
 ### Changed
 
 - **Scanner Effectiveness:**
-  - Expanded the default payload lists in `config.py` for both SQLi and Reflected XSS to improve detection rates for common vulnerabilities.
-  - Enhanced the SQLi scanner (`sqli_scanner.py`) to support both `append` and `replace` modes for fuzzing parameters.
+  - Expanded the default payload lists in `config.py` for both SQLi and
+    Reflected XSS to improve detection rates for common vulnerabilities.
+  - Enhanced the SQLi scanner (`sqli_scanner.py`) to support both `append` and
+    `replace` modes for fuzzing parameters.
   - Implemented boolean-based blind SQLi detection logic in the SQLi scanner.
-  - Changed the Stored XSS probe to a more distinct and active format (`nightcrawler_xss_probe_{probe_id}`) for more reliable detection.
+  - Changed the Stored XSS probe to a more distinct and active format
+    (`nightcrawler_xss_probe_{probe_id}`) for more reliable detection.
 
 ### Fixed
 
-- **Test Suite:** Fixed multiple failing tests and improved the stability of the test suite by correcting mocking strategies and assertions.
+- **Test Suite:** Fixed multiple failing tests and improved the stability of the
+  test suite by correcting mocking strategies and assertions.
 
 ## [0.10.0] - 2025-07-17
 

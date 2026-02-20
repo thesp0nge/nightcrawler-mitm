@@ -21,25 +21,16 @@ from urllib.parse import urlparse, urlunparse
 try:
     from nightcrawler.config import *
     from nightcrawler.utils import is_in_scope, create_target_signature
-    from nightcrawler.passive_scanner import run_all_passive_checks
+    from nightcrawler.passive_scanner import run_all_passive_checks, discover_passive_scanners
     from nightcrawler.crawler import discover_and_queue_targets
-    from nightcrawler.sqli_scanner import scan_sqli_basic, scan_sqli_boolean_based
-    from nightcrawler.xss_scanner import (
-        scan_xss_reflected_basic,
-        scan_xss_stored_inject,
-    )
-    from nightcrawler.idor_scanner import scan_idor
     from nightcrawler.websocket_handler import (
         handle_websocket_start,
         handle_websocket_message,
         handle_websocket_error,
         handle_websocket_end,
     )
-    from nightcrawler.passive_scans.websockets import check_websocket_authentication
     from nightcrawler.passive_scans.javascript import _check_osv_for_vulnerabilities
-    from nightcrawler.active_scans.discovery import scan_content_discovery
-    from nightcrawler.active_scans.traversal import scan_directory_traversal
-    from nightcrawler.active_scans.open_redirect import scan_open_redirect
+    from nightcrawler.active_scans import discover_scanners
     from nightcrawler import __version__ as nightcrawler_version
 except ImportError as e:
     logging.basicConfig(level=logging.CRITICAL)
@@ -123,6 +114,8 @@ class MainAddon:
         self.websocket_hosts_logged: set[str] = set()
         self.discovered_dirs: set[str] = set()
         self.report_findings: list[dict[str, Any]] = []
+        self.active_scanners: list = []
+        self.passive_scanners: list = []
 
         # Resources and Flags
         self.semaphore: Optional[asyncio.Semaphore] = None
@@ -572,6 +565,20 @@ class MainAddon:
                 "OS does not support SIGUSR1. On-demand URL dump is disabled."
             )
 
+        # --- Instantiate Active Scanners ---
+        if not self.active_scanners:
+            scanner_classes = discover_scanners()
+            for cls in scanner_classes:
+                self.active_scanners.append(cls(self, self.logger))
+            self.logger.info(f"Initialized {len(self.active_scanners)} active scanners.")
+
+        # --- Instantiate Passive Scanners ---
+        if not self.passive_scanners:
+            passive_classes = discover_passive_scanners()
+            for cls in passive_classes:
+                self.passive_scanners.append(cls(self, self.logger))
+            self.logger.info(f"Initialized {len(self.passive_scanners)} passive scanners.")
+
         if not self.semaphore or self.semaphore._value != self.max_concurrency:
             self.semaphore = asyncio.Semaphore(self.max_concurrency)
         if (
@@ -670,12 +677,9 @@ class MainAddon:
             flow.request.pretty_url, self.effective_scope
         ):
             return
-        try:
-            run_all_passive_checks(flow, self, self.logger)
-        except Exception as e:
-            self.logger.error(
-                f"Error in passive scans for {flow.request.pretty_url}: {e}"
-            )
+        # Run passive checks asynchronously
+        asyncio.create_task(run_all_passive_checks(flow, self, self.logger))
+
         content_type = flow.response.headers.get("Content-Type", "")
         if (
             200 <= flow.response.status_code < 300
@@ -788,74 +792,12 @@ class MainAddon:
                         )
                         if not self.http_client:
                             continue
-                        self.scanner_status['sqli_basic'] = time.time()
-                        self.scanner_status["sqli_basic_append"] = time.time()
-                        await scan_sqli_basic(
-                            scan_details,
-                            cookies,
-                            self.http_client,
-                            self.sqli_payloads,
-                            self,
-                            self.logger,
-                            mode="append",
-                        )
-                        self.scanner_status["sqli_basic_replace"] = time.time()
-                        await scan_sqli_basic(
-                            scan_details,
-                            cookies,
-                            self.http_client,
-                            self.sqli_payloads,
-                            self,
-                            self.logger,
-                            mode="replace",
-                        )
-                        self.scanner_status["sqli_boolean_based"] = time.time()
-                        await scan_sqli_boolean_based(
-                            scan_details,
-                            cookies,
-                            self.http_client,
-                            self,
-                            self.logger,
-                        )
-                        self.scanner_status['xss_reflected_basic'] = time.time()
-                        await scan_xss_reflected_basic(
-                            scan_details,
-                            cookies,
-                            self.http_client,
-                            self.xss_reflected_payloads,
-                            self,
-                            self.logger,
-                        )
-                        self.scanner_status['xss_stored_inject'] = time.time()
-                        await scan_xss_stored_inject(
-                            scan_details,
-                            cookies,
-                            self.http_client,
-                            self,
-                            self.xss_stored_prefix,
-                            self.xss_stored_format,
-                            self.logger,
-                        )
-                        self.scanner_status['directory_traversal'] = time.time()
-                        await scan_directory_traversal(
-                            scan_details, cookies, self.http_client, self, self.logger
-                        )
-                        self.scanner_status["open_redirect_scan"] = time.time()
-                        await scan_open_redirect(
-                            scan_details,
-                            cookies,
-                            self.http_client,
-                            self,
-                            self.logger,
-                        )
-                        self.scanner_status["idor_scan"] = time.time()
-                        await scan_idor(
-                            scan_details,
-                            cookies,
-                            self.http_client,
-                            self,
-                            self.logger,
-                        )
+                        
+                        # Run all discovered active scanners
+                        for scanner in self.active_scanners:
+                            self.scanner_status[scanner.name] = time.time()
+                            await scanner.run(scan_details, cookies, self.http_client)
+
                         if target_method in ["POST", "PUT", "PATCH"]:
                             revisit_url = scan_details["url"]
                             if revisit_url not in self.revisit_in_progress:
@@ -1012,12 +954,12 @@ class MainAddon:
     def websocket_start(self, flow: http.HTTPFlow):
         """Mitmproxy hook called when a WebSocket connection is established."""
         handle_websocket_start(flow, self, self.logger)
-        try:
-            check_websocket_authentication(flow, self, self.logger)
-        except Exception as e:
-            self.logger.error(
-                f"Error during WebSocket authentication check for {flow.request.pretty_url}: {e}"
-            )
+        
+        # Run WebSocket authentication check via the specific scanner
+        for scanner in self.passive_scanners:
+            if scanner.name == "WebSocket":
+                asyncio.create_task(scanner.scan_request(flow.request))
+                break
 
     def websocket_message(self, flow: http.HTTPFlow):
         handle_websocket_message(flow, self, self.logger)
