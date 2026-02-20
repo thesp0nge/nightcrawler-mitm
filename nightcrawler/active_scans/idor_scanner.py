@@ -3,8 +3,11 @@
 
 import httpx
 import difflib
+import re
+import random
 from typing import Dict, Any, List, TYPE_CHECKING
 from nightcrawler.active_scans.base import ActiveScanner
+from nightcrawler.addon import UUID_REGEX, HEX_ID_REGEX
 
 if TYPE_CHECKING:
     from nightcrawler.addon import MainAddon
@@ -40,62 +43,82 @@ class IDORScanner(ActiveScanner):
             self.logger.debug(f"[IDOR Scan] Exception while getting original response for {url}: {e}")
             return
 
+        request_url_base = url.split("?")[0]
+
         for param_name in params_to_fuzz:
             is_param_in_query = param_name in original_params
             value = (original_params[param_name] if is_param_in_query else original_data[param_name])
             original_value = value[0] if isinstance(value, list) else value
+            
+            if not original_value:
+                continue
 
-            if original_value and original_value.isdigit():
+            payloads_to_test = []
+
+            # 1. Numeric IDOR logic
+            if original_value.isdigit():
                 original_numeric_value = int(original_value)
-                
                 for offset in [-2, -1, 1, 2]:
-                    fuzzed_value = str(original_numeric_value + offset)
-                    current_params = original_params.copy()
-                    current_data = original_data.copy()
+                    payloads_to_test.append(str(original_numeric_value + offset))
 
-                    if is_param_in_query: current_params[param_name] = fuzzed_value
-                    else: current_data[param_name] = fuzzed_value
-                    
-                    try:
-                        fuzzed_response = await http_client.request(
-                            method, url.split("?")[0] if is_param_in_query else url,
-                            params=current_params, data=current_data, headers=original_headers,
-                        )
+            # 2. UUID/Opaque IDOR logic (Swap with discovered IDs)
+            elif UUID_REGEX.match(original_value) or HEX_ID_REGEX.match(original_value):
+                # Filter out the current value from discovered IDs to find alternative candidates
+                other_ids = [vid for vid in self.addon_instance.discovered_ids if vid != original_value]
+                if other_ids:
+                    # Select up to 3 random IDs to test
+                    payloads_to_test.extend(random.sample(other_ids, min(3, len(other_ids))))
 
-                        if (
-                            original_response.status_code == fuzzed_response.status_code
-                            and fuzzed_response.status_code == 200
-                            and len(original_response.content) != len(fuzzed_response.content)
-                        ):
-                            # Dynamic Verification: Structure & Stability Check
-                            try:
-                                stability_check = await http_client.request(
-                                    method, url, params=original_params, data=original_data, headers=original_headers
+            if not payloads_to_test:
+                continue
+
+            for fuzzed_value in payloads_to_test:
+                current_params = original_params.copy()
+                current_data = original_data.copy()
+
+                if is_param_in_query: current_params[param_name] = fuzzed_value
+                else: current_data[param_name] = fuzzed_value
+                
+                try:
+                    fuzzed_response = await http_client.request(
+                        method, request_url_base,
+                        params=current_params, data=current_data, headers=original_headers,
+                    )
+
+                    if (
+                        original_response.status_code == fuzzed_response.status_code
+                        and fuzzed_response.status_code == 200
+                        and len(original_response.content) != len(fuzzed_response.content)
+                    ):
+                        # Dynamic Verification: Structure & Stability Check
+                        try:
+                            stability_check = await http_client.request(
+                                method, url, params=original_params, data=original_data, headers=original_headers
+                            )
+                            stability_ratio = difflib.SequenceMatcher(None, original_response.text, stability_check.text).ratio()
+                            if stability_ratio < 0.98: continue
+
+                            structure_ratio = difflib.SequenceMatcher(None, original_response.text, fuzzed_response.text).ratio()
+                            
+                            if 0.6 < structure_ratio < 0.999:
+                                payload_info_detail = (
+                                    f"Param: {param_name}, Original: {original_value}, Fuzzed: {fuzzed_value}. "
+                                    f"Similarity Ratio: {structure_ratio:.2f}"
                                 )
-                                stability_ratio = difflib.SequenceMatcher(None, original_response.text, stability_check.text).ratio()
-                                if stability_ratio < 0.98: continue
-
-                                structure_ratio = difflib.SequenceMatcher(None, original_response.text, fuzzed_response.text).ratio()
-                                
-                                if 0.85 < structure_ratio < 0.999:
-                                    payload_info_detail = (
-                                        f"Param: {param_name}, Original: {original_value}, Fuzzed: {fuzzed_value}. "
-                                        f"Similarity Ratio: {structure_ratio:.2f}"
-                                    )
-                                    payload_info_evidence = {
-                                        "param": param_name,
-                                        "original_value": original_value,
-                                        "fuzzed_value": fuzzed_value,
-                                        "similarity_ratio": structure_ratio,
-                                    }
-                                    self.addon_instance._log_finding(
-                                        level="WARN",
-                                        finding_type="IDOR Found? (Content Length Difference)",
-                                        url=url,
-                                        detail=payload_info_detail,
-                                        evidence=payload_info_evidence,
-                                        confidence="MEDIUM",
-                                    )
-                            except Exception: pass
-                    except Exception as e:
-                        self.logger.debug(f"[IDOR Scan] Exception: {e} ({param_name})")
+                                payload_info_evidence = {
+                                    "param": param_name,
+                                    "original_value": original_value,
+                                    "fuzzed_value": fuzzed_value,
+                                    "similarity_ratio": structure_ratio,
+                                }
+                                self.addon_instance._log_finding(
+                                    level="WARN",
+                                    finding_type="IDOR Found? (Advanced Swap)",
+                                    url=url,
+                                    detail=payload_info_detail,
+                                    evidence=payload_info_evidence,
+                                    confidence="MEDIUM",
+                                )
+                        except Exception: pass
+                except Exception as e:
+                    self.logger.debug(f"[IDOR Scan] Exception: {e} ({param_name})")

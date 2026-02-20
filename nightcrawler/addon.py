@@ -14,8 +14,13 @@ import os
 import yaml
 import html
 import signal
+import re
 from typing import Set, Dict, Any, Optional, List, TYPE_CHECKING, Union
 from urllib.parse import urlparse, urlunparse
+
+# --- IDOR ID Extraction Patterns ---
+UUID_REGEX = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")
+HEX_ID_REGEX = re.compile(r"\b[0-9a-fA-F]{8,64}\b")
 
 # --- Imports from local package modules ---
 try:
@@ -116,6 +121,7 @@ class MainAddon:
         self.report_findings: list[dict[str, Any]] = []
         self.active_scanners: list = []
         self.passive_scanners: list = []
+        self.discovered_ids: set[str] = set()
 
         # Resources and Flags
         self.semaphore: Optional[asyncio.Semaphore] = None
@@ -637,11 +643,38 @@ class MainAddon:
         self._generate_html_report()
         self.logger.info("Main Addon: Shutdown complete.")
 
+    def _extract_ids_from_flow(self, flow: http.HTTPFlow):
+        """Extracts potential identifiers (UUIDs, hex strings) from request/response."""
+        strings_to_check = [flow.request.pretty_url]
+        
+        if flow.response and flow.response.text:
+            content_type = flow.response.headers.get("Content-Type", "").lower()
+            # Only scan body if it's likely to contain structured data
+            if "json" in content_type or "javascript" in content_type:
+                strings_to_check.append(flow.response.text)
+
+        for s in strings_to_check:
+            # Find UUIDs
+            for uuid_match in UUID_REGEX.finditer(s):
+                self.discovered_ids.add(uuid_match.group(0))
+            
+            # Find potential Hex IDs (8-64 chars)
+            for hex_match in HEX_ID_REGEX.finditer(s):
+                # Avoid adding UUID segments if they were already caught
+                # or adding very common short hex strings that aren't IDs
+                val = hex_match.group(0)
+                if val not in self.discovered_ids:
+                    self.discovered_ids.add(val)
+
     def request(self, flow: http.HTTPFlow):
         if not self.effective_scope or not is_in_scope(
             flow.request.pretty_url, self.effective_scope
         ):
             return
+        
+        # Proactively extract IDs for IDOR scanning
+        self._extract_ids_from_flow(flow)
+
         url = flow.request.pretty_url
         if url not in self.discovered_urls:
             self.logger.info(f"[DISCOVERY] Added URL: {url}")
@@ -679,6 +712,9 @@ class MainAddon:
             return
         # Run passive checks asynchronously
         asyncio.create_task(run_all_passive_checks(flow, self, self.logger))
+        
+        # Extract IDs from response for IDOR scanning
+        self._extract_ids_from_flow(flow)
 
         content_type = flow.response.headers.get("Content-Type", "")
         if (
